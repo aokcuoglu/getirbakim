@@ -12,18 +12,21 @@ import { parseSearchQuery, prefixTsQuery, wholeWords } from "../src/modules/sear
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let partner: typeof import("../src/modules/partner/catalog");
 let catalog: typeof import("../src/modules/store/catalog");
+let epoch: typeof import("../src/modules/store/listing-epoch");
 let closeDb: () => Promise<void>;
 const ids: string[] = [];
 const [basbug, , dinamik] = storefrontCompanies();
 const groupIds: Record<string, string> = {};
 const vehicleTypeId = 100;
 // ATE brake discs and the SKODA types their enrichments name (#1395): `fits` are matched fitments (agreeing with the
-// payload), `stale` ones disagree with it, `remove`/`add` are an admin's decisions. Types: 200 OCTAVIA III 1.6 TDI,
+// payload), `stale` ones disagree with it, `remove`/`add` are an admin's decisions, `name` names a model as Dinamik's
+// names do (default "ATE FREN DISKI"). Types: 200 OCTAVIA III 1.6 TDI,
 // 201 OCTAVIA III 1.4 TSI (model 20), 210 SUPERB II 2.0 TDI, 211 SUPERB II 1.8 TSI (model 21), 110 PASSAT 2.0 TDI (model 11, its only type).
-const ateDiscs: Record<string, { fits?: number[]; stale?: number[]; remove?: number[]; add?: number[] }> = {
+const ateDiscs: Record<string, { fits?: number[]; stale?: number[]; remove?: number[]; add?: number[]; name?: string }> = {
   octaviaTdi: { fits: [200] }, octaviaTsi: { fits: [201] }, superbTdi: { fits: [210] }, superbTsi: { fits: [211] },
   bothTdiRemoved: { fits: [200, 210], remove: [210] }, octaviaRemoved: { fits: [201], remove: [201] },
   superbAdded: { add: [210] }, octaviaAdded: { add: [201] }, octaviaStale: { stale: [200] }, passat: { fits: [110] },
+  superbInName: { fits: [200], name: "ATE FREN DISKI SUPERB" },
 };
 const ate: Record<string, string> = {};
 const typeNames: Record<number, [string, string]> = { 200: ["OCTAVIA III", "1.6 TDI"], 201: ["OCTAVIA III", "1.4 TSI"], 210: ["SUPERB II", "2.0 TDI"],
@@ -65,11 +68,12 @@ before(async () => {
       { uk: "MANN", ac: "MANN YAG FILTRESI", ac2: "", dc: "TL", ...(supplier === "dinamik" ? { marka: "MANN", stokAdi: "MANN YAG FILTRESI" } : {}) }]);
     groupIds[key] = rows[0].id;
   }
-  for (const [index, key] of Object.keys(ateDiscs).entries()) {
+  for (const [index, [key, disc]] of Object.entries(ateDiscs).entries()) {
     const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
       product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
-      VALUES('basbug',$1,'G','MRK',$2,'{"uk":"ATE","ac":"ATE FREN DISKI","ac2":"","dc":"TL"}','{"nf":100}','{"stok":2}',1,1,1,false,'present',
-       now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour') RETURNING id::text`, [basbug, `ATE 2401${500 + index}`]);
+      VALUES('basbug',$1,'G','MRK',$2,$3,'{"nf":100}','{"stok":2}',1,1,1,false,'present',
+       now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour') RETURNING id::text`,
+    [basbug, `ATE 2401${500 + index}`, { uk: "ATE", ac: disc.name ?? "ATE FREN DISKI", ac2: "", dc: "TL" }]);
     ate[key] = rows[0].id;
   }
   await schema.pool.query("SELECT refresh_product_matches()");
@@ -122,6 +126,7 @@ before(async () => {
   await schema.pool.query("DELETE FROM product_enrichment_shared_links WHERE supplier_item_id=$1", [groupIds.deepBasbug]);
   const [{ db }, partnerModule, catalogModule] = await Promise.all([
     import("../src/lib/db"), import("../src/modules/partner/catalog"), import("../src/modules/store/catalog")]);
+  epoch = await import("../src/modules/store/listing-epoch");
   partner = partnerModule;
   catalog = catalogModule;
   closeDb = () => db.end();
@@ -263,18 +268,24 @@ async function fittedBefore(words: string) {
     UNION SELECT supplier_item_id FROM decided WHERE mode='add') fitted`, [prefixTsQuery(vehicleWords(words))])).rows.map(row => row.id));
 }
 const vehicleWords = (words: string) => wholeWords(parseSearchQuery(words, { years: true }));
+/** vehicleFittedIds for words within the live-type limit. */
+async function fittedOf(words: string) {
+  const fitted = await catalog.vehicleFittedIds(vehicleWords(words));
+  assert.ok(fitted, `"${words}" is read`);
+  return fitted;
+}
 const discsOf = (rowIds: Iterable<string>) => Object.keys(ate).filter(key => new Set(rowIds).has(ate[key])).sort();
 
 test("a search's vehicle reading (#1395): whole models from the model fits, other types live, the rows the live read gave before", async () => {
   // Whole: both OCTAVIA III types. Partial: one of SUPERB II's two types. Mixed: "tdi" is PASSAT's only type (a whole
   // model) and one or two types of GOLF VII, OCTAVIA III and SUPERB II.
   const cases: [string, string[]][] = [
-    ["octavia", ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi"]],
+    ["octavia", ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi", "superbInName"]],
     ["superb tdi", ["superbAdded", "superbTdi"]],
-    ["tdi", ["bothTdiRemoved", "octaviaTdi", "passat", "superbAdded", "superbTdi"]],
+    ["tdi", ["bothTdiRemoved", "octaviaTdi", "passat", "superbAdded", "superbInName", "superbTdi"]],
   ];
   for (const [words, discs] of cases) {
-    const fitted = await catalog.vehicleFittedIds(vehicleWords(words));
+    const fitted = await fittedOf(words);
     assert.equal(new Set(fitted).size, fitted.length, words);
     // A removed type drops its fitment only (bothTdiRemoved still fits 200), a stale one never counts, an added type lists the row.
     assert.deepEqual(discsOf(fitted), discs, words);
@@ -282,20 +293,45 @@ test("a search's vehicle reading (#1395): whole models from the model fits, othe
   }
   // The whole model is not read live: the model fits alone decide it, so a row the refresh has not written yet is missing.
   await schema.pool.query("DELETE FROM storefront_model_fits WHERE model_id=20 AND supplier_item_id=$1", [ate.octaviaTsi]);
-  assert.deepEqual(discsOf(await catalog.vehicleFittedIds(vehicleWords("octavia"))), ["bothTdiRemoved", "octaviaAdded", "octaviaTdi"]);
+  assert.deepEqual(discsOf(await fittedOf("octavia")), ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "superbInName"]);
   await schema.pool.query("SELECT storefront_make_fits_refresh($1::uuid[])", [[ate.octaviaTsi]]);
-  assert.deepEqual(discsOf(await catalog.vehicleFittedIds(vehicleWords("octavia"))), ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi"]);
+  assert.deepEqual(discsOf(await fittedOf("octavia")), ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi", "superbInName"]);
 });
 
 test("part + vehicle searches list the fitted discs (#1395): a whole model, a single type and a mixed reading", async () => {
   for (const [q, discs] of [
-    ["ate fren diski octavia", ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi"]],
-    ["ate fren diski superb tdi", ["superbAdded", "superbTdi"]],
-    ["ate fren diski tdi", ["bothTdiRemoved", "octaviaTdi", "passat", "superbAdded", "superbTdi"]],
+    ["ate fren diski octavia", ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi", "superbInName"]],
+    // The first split that finds fitted parts wins: "tdi" after "ate fren diski superb" (a name match), before "superb tdi".
+    ["ate fren diski superb tdi", ["superbInName"]],
+    ["ate fren diski tdi", ["bothTdiRemoved", "octaviaTdi", "passat", "superbAdded", "superbInName", "superbTdi"]],
   ] as const) {
     assert.deepEqual(discsOf(await catalog.rankedSearchIds(q, "all")), discs, q);
     const { products } = await search(q);
     assert.deepEqual(discsOf(products.map(product => product.id)), discs, q);
     assert.equal(products.length, discs.length, q);
   }
+});
+
+test("a vehicle reading past VEHICLE_SEARCH_MAX_LIVE_TYPES live types is skipped for the next split; whole models are not capped (#1395)", async () => {
+  const saved = process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES;
+  const withLimit = async <T>(limit: string, run: () => Promise<T>) => {
+    process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES = limit;
+    try { return await run(); }
+    finally { if (saved === undefined) delete process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES; else process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES = saved; }
+  };
+  const reading = (words: string) => catalog.vehicleFittedIds(vehicleWords(words));
+  const tdi = ["bothTdiRemoved", "octaviaTdi", "passat", "superbAdded", "superbInName", "superbTdi"];
+  // "tdi": four types of partly matched models (GOLF VII 100 and 102, OCTAVIA III 200, SUPERB II 210) and PASSAT, whole.
+  assert.equal(await withLimit("3", () => reading("tdi")), null);
+  assert.deepEqual(discsOf(await withLimit("4", () => reading("tdi")) ?? []), tdi);
+  // Blank or invalid: 500.
+  for (const setting of ["", " ", "abc", "-1", "2.5"]) assert.deepEqual(discsOf(await withLimit(setting, () => reading("tdi")) ?? []), tdi, setting);
+  // 0 reads no partly matched model live; a whole model is read from its model fits whatever the limit.
+  assert.equal(await withLimit("0", () => reading("superb tdi")), null);
+  assert.deepEqual(discsOf(await withLimit("0", () => reading("octavia")) ?? []), ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi", "superbInName"]);
+  // A search reloads (an edit's bump) under the limit: the capped "tdi" split is no vehicle reading, so "superb tdi" is
+  // read instead; with "tdi" its only vehicle reading, nothing fits and nothing names "tdi".
+  await epoch.invalidateListings();
+  assert.deepEqual(discsOf(await withLimit("3", () => catalog.rankedSearchIds("ate fren diski superb tdi", "all"))), ["superbAdded", "superbTdi"]);
+  assert.deepEqual(await withLimit("3", () => catalog.rankedSearchIds("ate fren diski tdi", "all")), []);
 });
