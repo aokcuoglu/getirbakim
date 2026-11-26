@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.42.1 — 2026-11-26
+
+Patch release of `dev` since v0.42.0 (3 pull requests). **v0.42.0 was never deployed:** its `release-aws` run was cancelled during the pre-release snapshot, before anything changed. Production mail had moved back from Resend to Amazon SES the same day, and v0.42.0 names Resend in the legal texts. This release names Amazon SES again and adds two upload and search hardening fixes. The v0.42.0 deploy and operations steps below apply to this release. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Fixed
+- **Legal texts name Amazon SES again:** production mail goes through Amazon SES (`MAIL_TRANSPORT=ses`, SES production access granted on 2026-11-26, getirbakim-infra #33/#35). The KVKK notice and the privacy policy are byte-identical to the owner-approved 2026-11-22 text that production already shows, so the notice version new signups record does not change. This reverts #1361 ([#1427](https://github.com/aokcuoglu/getirbakim/pull/1427), [#1426](https://github.com/aokcuoglu/getirbakim/issues/1426)).
+
+### Changed
+- **Verified uploads without a read-back:** the storefront importer and `storeProductImageBytes` send `ChecksumSHA256` from the expected sha256, so S3 checks the bytes itself; the full `GetObject` read-back is gone. A mismatch stores nothing. A store that does not echo the checksum falls back to the read-back and counts it as `mediaReadBack` in the import report. A cold 4,000-object media phase went from 33.7 s to 24.6 s in the local measurement ([#1422](https://github.com/aokcuoglu/getirbakim/pull/1422), [#1417](https://github.com/aokcuoglu/getirbakim/issues/1417)).
+- **Bounded spell-correction and synonym loads:**
+  - The search spell-correction and the admin synonym load run under a server-side limit (at most 5 s). A failed correction searches as typed.
+  - A timeout pauses correction for `SEARCH_FAILURE_HOLD_MS` (default 30 s, `0` off).
+  - A type-ahead hit set that timed out is held for 30 s. A key that never loaded answers `503` with `Retry-After: 30`, and the search box then shows no dropdown ([#1428](https://github.com/aokcuoglu/getirbakim/pull/1428), [#1416](https://github.com/aokcuoglu/getirbakim/issues/1416)).
+
+### Deploy and operations
+- **All v0.42.0 steps apply:**
+  - the `db:setup` tables and columns;
+  - getirbakim-infra#27 right after the release;
+  - the importer first-sync checks;
+  - the post-release log, timing and derive steps.
+
+  The pre-release check of catalog read durations for the 55 s limit was done on 2026-11-26 (#1420). The v0.42.0 check of `/kvkk-aydinlatma-metni` and `/gizlilik-politikasi` is replaced: they show the 2026-11-22 Amazon SES text with no Resend mention.
+- **The App stack comes from getirbakim-infra `main`,** which carries the SES configuration-set permission (#35). A CDK deploy from an older infra checkout would remove it and break sending.
+- **After release:**
+  - no `AccessDenied` or `ses:SendRawEmail` lines in `/getirbakim-production/app`;
+  - after the first storefront import, `mediaReadBack` is 0 in `report.json` (#1417);
+  - review the `boundedQuery timeout` counts for `catalog.searchHits` and `search.correct` (#1416).
+- No schema change beyond v0.42.0. Vehicle oil specs are unchanged.
+
 ## v0.42.0 — 2026-11-26
 
 Release of `dev` since v0.41.0 (30 pull requests): the KVKK notice and privacy policy name Resend as the e-mail processor, the header Katalog button opens the category sheet on desktop, the anonymous home page can be edge-cached, deep price-sorted and manufacturer listings are faster, every catalog read gets a server-side time limit, partner search timeouts are answered with 503, the description fitment derive keeps the rows of enriched items, and the nightly storefront sync is lighter. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
