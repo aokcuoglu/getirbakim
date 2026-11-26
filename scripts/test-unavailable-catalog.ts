@@ -890,6 +890,19 @@ describe("availability filter (#1242)", () => {
       assert.equal(withMax(undefined, () => stockClause("out_of_stock", scope(30_001)))?.workMem, "32MB");
       assert.deepEqual(stockClause("supplied", scope(1)), { clause: "NOT catalog.unavailable", idSet: false });
       assert.equal(stockClause(undefined, scope(1)), undefined);
+      // A brand's, manufacturer's or make's prefetched scope (#1455): the setting's limit, in stock at most 20,000 (its count
+      // lost to the whole set's in the 20-30k band); none without a stock filter or with the setting at 0.
+      const { prefetchedStockScopeMaxIds } = stockFilter;
+      for (const [value, inStock, outOfStock] of [[undefined, 20_000, 30_000], ["12000", 12_000, 12_000], ["25000", 20_000, 25_000],
+        ["999999", 20_000, 50_000], ["0", 0, 0]] as const) {
+        assert.equal(withMax(value, () => prefetchedStockScopeMaxIds("in_stock")), inStock, `in_stock ${value}`);
+        assert.equal(withMax(value, () => prefetchedStockScopeMaxIds("out_of_stock")), outOfStock, `out_of_stock ${value}`);
+        for (const availability of ["supplied", undefined] as const) assert.equal(withMax(value, () => prefetchedStockScopeMaxIds(availability)), 0, `${availability} ${value}`);
+      }
+      // catalogFilter reads its prefetched scopes up to that limit, and only when it is above 0.
+      const catalogSource = await readFile("src/modules/store/catalog.ts", "utf8");
+      assert.match(catalogSource, /prefetchMax=prefetchedStockScopeMaxIds\(query\.availability\);\n if\(prefetchMax>0&&/);
+      assert.match(catalogSource, /stockScope\(source,prefetchMax\)/);
     });
 
     // Brand and manufacturer listings bind no JS id array: a stock filter reads their listed ids first (the stock scope,

@@ -32,7 +32,7 @@ import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
 import {compareOffers} from './best-offer';
 import {manufacturerLabels} from './manufacturers.server';
 import {displayBrandSql,masterBrandJoinSql} from './display-brand-sql';
-import {stockClause,stockScopeMaxIds,type StockScope} from './stock-filter';
+import {prefetchedStockScopeMaxIds,stockClause,stockScopeMaxIds,type StockScope} from './stock-filter';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
@@ -741,8 +741,9 @@ async function shownBrandClause(names:string[],values:unknown[]) {
  return `${reach} AND catalog.display_brand=ANY(${key})`;
 }
 // The stock scopes of the listings that bind no JS id array (#1455): a brand's or manufacturer's (shownBrandClause) and
-// a make's alone (makeFitsSql). A stock-filtered listing of one first reads its listed ids, up to the stock filter's limit
-// (stockScopeMaxIds), and its stock filter then reads those ids' stock only (stockClause), not the whole stock set. The
+// a make's alone (makeFitsSql). A stock-filtered listing of one first reads its listed ids, up to its limit
+// (prefetchedStockScopeMaxIds: the stock filter's, in stock at most 20,000), and its stock filter then reads those ids'
+// stock only (stockClause), not the whole stock set. The
 // ids travel as one array literal, never as row objects (listedIds); `ids` is null when the scope holds more than the
 // limit (the read stops one row past it), and the listing then reads the whole set. Cached per process for 10 minutes and
 // reloaded when the counter its rows follow moves (a brand's: the listing epoch, which admin brand and override edits move;
@@ -867,15 +868,15 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  // The availability filter (stockClause in stock-filter.ts, which says what each one lists and why its SQL is shaped so).
  // A stock filter reads the stock of the smallest bound array's ids only when that array holds at most
  // LISTING_STOCK_SCOPE_MAX_IDS ids (#1429). Without such an array a brand, manufacturer or make-only listing reads its
- // listed ids first (stockScope, cached, #1455) and binds the smallest scope within the limit as that array, with no clause
- // of its own: the listing's clauses already hold its rows to that scope. Only one is bound: Postgres rejects a bound value
- // the statement does not reference. Without either (/katalog, a scope over the limit) the stock filter reads the whole
- // stock set as a plain clause, out of stock with more work_mem (listingQuery). The scope reads are returned
- // (`scopeReads`) for the timing script only.
+ // listed ids first (stockScope, cached, #1455) and binds the smallest scope within its limit (prefetchedStockScopeMaxIds:
+ // in stock at most 20,000) as that array, with no clause of its own: the listing's clauses already hold its rows to that
+ // scope. Only one is bound: Postgres rejects a bound value the statement does not reference. Without either (/katalog, a
+ // scope over its limit) the stock filter reads the whole stock set as a plain clause, out of stock with more work_mem
+ // (listingQuery). The scope reads are returned (`scopeReads`) for the timing script only.
  const scopeReads:Statement[]=[];
- const max=stockScopeMaxIds();
- if(stockFiltered(query)&&max>0&&scopeSources.length&&!bounds.some(scope=>scope.size<=max)){
-  const read=await Promise.all(scopeSources.map(source=>stockScope(source,max)));
+ const max=stockScopeMaxIds(),prefetchMax=prefetchedStockScopeMaxIds(query.availability);
+ if(prefetchMax>0&&scopeSources.length&&!bounds.some(scope=>scope.size<=max)){
+  const read=await Promise.all(scopeSources.map(source=>stockScope(source,prefetchMax)));
   scopeReads.push(...read.map(scope=>scope.read));
   const smallest=read.map(({scope})=>scope).filter(scope=>scope.ids!==null).sort((a,b)=>a.size-b.size)[0];
   if(smallest){values.push(smallest.ids);bounds.push({param:`$${values.length}::uuid[]`,size:smallest.size});}

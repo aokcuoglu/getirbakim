@@ -47,6 +47,22 @@ export function stockScopeMaxIds():number{
  return Number.isSafeInteger(value)&&value>0?Math.min(value,stockScopeCeiling):defaultStockScopeMaxIds;
 }
 
+// A brand's, manufacturer's or make's listed ids read first (catalogFilter's stock scopes, #1455) are bound in stock up to
+// 20,000 ids only: in the 20-30k band the scoped in-stock count lost to the whole set's. Measured locally (load 2.5-4.1,
+// medians of 5 passes, same count and ids on one snapshot): manufacturer=bosch, ~22k listed, 8.5k in stock: count
+// 302 -> 413 ms (+37%), while page 1 gained 624 -> 404 ms and the price page 807 -> 538 ms; out of stock (12.7k) gained
+// everywhere (count 799 -> 610 ms, page 1 832 -> 599 ms, price page 1331 -> 776 ms), so it keeps the setting's limit.
+const prefetchedInStockMaxIds=20_000;
+/**
+ * The largest prefetched stock scope (#1455) the stock filter of `availability` binds: stockScopeMaxIds(), in stock at
+ * most 20,000 (see above); 0 for no stock filter, or when the setting turns the scoped clause off.
+ */
+export function prefetchedStockScopeMaxIds(availability:CatalogQuery["availability"]):number{
+ if(availability!=="in_stock"&&availability!=="out_of_stock")return 0;
+ const max=stockScopeMaxIds();
+ return availability==="in_stock"?Math.min(max,prefetchedInStockMaxIds):max;
+}
+
 /** An id array the listing binds (`param`: "$3::uuid[]") and its length. */
 export type StockScope={param:string;size:number};
 /**
@@ -65,7 +81,8 @@ export type StockClause={clause:string;idSet:boolean;workMem?:string};
  * filter reads the availability of those ids only, as `catalog.id=ANY(ARRAY(<scoped ids>)::uuid[])`: an InitPlan run once
  * whose array drives the catalog by primary key. The array is a JS one the listing's own clause binds (search hits,
  * category, model, garage vehicle fits, oils), or the listed ids of a brand, manufacturer or make-only listing read first
- * and cached (catalogFilter's stock scopes, #1455), which every row of that listing is among. The unscoped clauses below
+ * and cached (catalogFilter's stock scopes, #1455; up to prefetchedStockScopeMaxIds), which every row of that listing is
+ * among. The unscoped clauses below
  * read the whole stock set (a serial scan of supplier_items, ~1.3M rows, and its hash) whatever the listing's size:
  * ~0.25-0.9 s a statement. Measured locally on one snapshot, same count and ids in the newest and price orders: 2k ids in
  * stock, count 537 -> 91 ms; out of stock 1445 -> 56 ms; category=fren in stock ~0.7-1.6 s -> 0.43-0.53 s, out of stock
