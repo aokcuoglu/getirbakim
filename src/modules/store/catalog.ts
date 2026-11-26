@@ -1133,7 +1133,7 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
 // it is served stale-while-revalidate for 10 minutes (admin edits reload it at once through the listing epoch, #585; a
 // search that may name a vehicle also with the fit sync, searchEpoch, #1368). A search waits at most LISTING_EPOCH_WAIT_MS
 // for that reload, then shows the earlier result unless it was empty (#1394). Cards (prices, stock) are still read live for the listed
-// ids. The first pages are kept (deeper pages are recomputed); facets need every match, so they are kept too.
+// ids. The first pages are kept (deeper pages come from the whole order searchOrder loads when one is first asked, #1447); facets need every match, so they are kept too.
 // 24 cards (#739, was 30) keep a listing page closer to the 350 KB HTML target (#642); 20 cached pages cover 480 results.
 const catalogPageSize=24;
 const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:plain=>plain.total>0});
@@ -1144,7 +1144,8 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
  return {ids:summary.ids.slice(0,cachedPages*catalogPageSize),total:summary.ids.length,brands:summary.brands,attributes,
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
 },{epoch:searchEpoch(raw,mode)});
-// A search keeps its whole order in memory (#1425 price sorts, #1440 relevance with filters and newest; search-price-order.ts):
+// A search keeps its whole order in memory (#1425 price sorts, #1440 relevance with filters and newest, #1447 a plain relevance search
+// only once a page past the cached ones is asked; search-price-order.ts):
 // every page slices it and reads its cards live, instead of the hit read, a live count and the page per request. The key is
 // the search, its mode, the filters and the sort (no sort reads as relevance); the epoch is the fits value when the search reads
 // vehicle fits (a make, model, garage vehicle filter or a search that may name a vehicle) and the listing epoch otherwise.
@@ -1181,6 +1182,20 @@ async function searchOrder(query:CatalogQuery,context:CatalogContext):Promise<Se
  if(timedOutSearchOrders.failure(key)||failedSearchOrders.failure(key))return null;
  try{
   return await cachedSearchOrders(key,async()=>{
+   if(isPlainSearch(query)&&sort==="relevance"){
+    // A plain relevance search past the cached pages (#1447): the order of plainSearch, ranked by summarizeSearch like pages 1-20.
+    const search=await catalogSearch(raw,mode);
+    const notes={correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
+    if(!search.ids.length)return {packed:Buffer.alloc(0),total:0,...notes};
+    try{
+     const {ids}=await summarizeSearch(search),packed=packIds(`{${ids.join(",")}}`);
+     return {packed,total:idCount(packed),...notes};
+    }catch(error){
+     (isStatementTimeout(error)?timedOutSearchOrders:failedSearchOrders).hold(key,new SearchOrderBuildError(`search order failed for ${key}`,error));
+     console.error(`Search order: build failed; reading live (${key})`,error instanceof Error?error.message:error);
+     throw new SearchOrderBuildError(`search order failed for ${key}`,error);
+    }
+   }
    const filter=await catalogFilter(query,context),{search}=filter;
    const notes={correctedQuery:search?.correctedQuery,vehicle:search?.vehicle,tooShort:search?.tooShort};
    const empty={packed:Buffer.alloc(0),total:0,...notes};
@@ -1388,8 +1403,14 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const pageSize=catalogPageSize,total=plain.total,pages=Math.max(1,Math.ceil(total/pageSize));
   const requested=Number(query.page);
   const page=Number.isSafeInteger(requested)?Math.min(pages,Math.max(1,requested)):1;
-  const ranked=page<=cachedPages?plain.ids:(await summarizeSearch(await catalogSearch(query.q!,mode))).ids;
-  const ids=ranked.slice((page-1)*pageSize,page*pageSize);
+  // Past the cached pages the whole order is loaded once per search (searchOrder); SEARCH_RANK_ORDER=0 or a failed build ranks live.
+  // Keyed by the canonical plain query: brands=[], attributes={} or unparsable JSON are plain too and must share one entry.
+  // A timed-out build makes this request rerun the same live statement once; later requests are held.
+  // total/pages come from plain, so the last page can be short if the hit count moved between the two loads, as before.
+  const deep=page>cachedPages&&searchRankOrderEnabled()?await searchOrder({q:query.q,searchBy:query.searchBy},{}):null;
+  const ids=page<=cachedPages?plain.ids.slice((page-1)*pageSize,page*pageSize)
+   :deep?unpackIds(deep.packed,(page-1)*pageSize,pageSize)
+   :(await summarizeSearch(await catalogSearch(query.q!,mode))).ids.slice((page-1)*pageSize,page*pageSize);
   const items=await storefrontRowsByIds(ids);
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }

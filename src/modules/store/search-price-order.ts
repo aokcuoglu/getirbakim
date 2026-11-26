@@ -7,8 +7,9 @@ import type { VehicleSearchScope } from "./catalog";
  * returns only the whole order (id and the columns its ORDER BY reads, priceOrderTextSql) costs less than the live count and
  * page together, its length is the live count and its slice the live page's ids, so the order is loaded once per search,
  * filters and sort and every page slices it: the warm page reads only its cards (catalog.ts, searchOrder). Sorts covered:
- * price-asc and price-desc (#1425), relevance with a filter and newest (#1440; a plain relevance search without filters
- * has its own cache, plainSearch). Measured locally, lean order against today's count + ranked page, the id count equal
+ * price-asc and price-desc (#1425), relevance with a filter and newest (#1440); a plain relevance search without filters
+ * has its own cache for pages 1-20 (plainSearch) and loads its whole order here, ranked as those pages are, only when a deeper
+ * page is first asked (#1447; q=fren page 21 paid 1.43 s live on every request). Measured locally, lean order against today's count + ranked page, the id count equal
  * to the live count each time:
  *   q=filtre&availability=in_stock   1.01-1.1 s  vs 1.95 s
  *   q=fren&brand=BOSCH               0.15 s      vs 0.59 s
@@ -30,7 +31,7 @@ import type { VehicleSearchScope } from "./catalog";
  * request. The request whose load fails may still get the earlier entry.
  * Switches, read per request: SEARCH_PRICE_ORDER=0 reads every price-sorted search live again (the rollback), apart from
  * LISTING_PRICE_ORDER, which keeps governing the stored listing orders; SEARCH_RANK_ORDER=0 does the same for the
- * relevance and newest searches, leaving the price orders cached.
+ * relevance (plain deep pages included) and newest searches, leaving the price orders cached.
  * The listing price orders stored in the database (listing-price-order.ts) never serve a search: their key has no query.
  */
 const defaultMaxIds = 1_000_000;
