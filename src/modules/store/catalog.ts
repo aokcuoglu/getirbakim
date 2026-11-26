@@ -5,14 +5,15 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
 import { staleCache } from "@/lib/stale-cache";
-import { sharedLoads, ttlCache } from "@/lib/ttl-cache";
+import { failureHold, sharedLoads, ttlCache } from "@/lib/ttl-cache";
+import { isPoolTimeout, isStatementTimeout } from "@/lib/db-errors";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore, storedLinks } from "./listing-cache-store";
 import { buildPriceOrder, priceOrderEnabled, priceOrderHeadStore, priceOrderInUse, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
-import { defaultListingLimitMs, listingStatementTimeoutMs, suggestStatementTimeoutMs } from "./listing-timeout";
+import { defaultListingLimitMs, listingStatementTimeoutMs, searchFailureHoldMs, suggestStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
@@ -455,7 +456,8 @@ export function searchHitIdsSql(parsed:ParsedSearch,values:unknown[],mode:Search
 }
 /**
  * Parses the query and, when nothing matches as typed, retries it with mistyped words corrected. `read` (the type-ahead's
- * shorter limit, #1398) applies to its catalog reads; the synonym load and the spell-correction stay unbounded.
+ * shorter limit, #1398) applies to its catalog reads and the spell-correction (#1416); the synonym load always runs under the
+ * type-ahead's limit. A failed correction or synonym load goes on without it (custom-synonyms.ts, correctSearch).
  */
 const searchCatalog=async(raw:string,mode:SearchMode,read?:ReadOptions):Promise<CatalogSearch>=>{
  // Admin synonyms (#822) join the parser before the query is read.
@@ -475,7 +477,7 @@ const searchCatalog=async(raw:string,mode:SearchMode,read?:ReadOptions):Promise<
  // spell-corrected ("hava fiiltresi"), then a split with each part corrected ("fren balatsı pasat").
  const vehicle=await vehicleSearch(raw,hits,false,false,read);
  if(vehicle)return vehicle;
- const corrected=await correctSearch(raw,"product");
+ const corrected=await correctSearch(raw,"product",{},read?.timeoutMs);
  const correctedIds=corrected?await hits(corrected.parsed):[];
  if(corrected&&correctedIds.length)return {parsed:corrected.parsed,ids:correctedIds,correctedQuery:corrected.text};
  return await vehicleSearch(raw,hits,true,false,read)??{parsed,ids};
@@ -579,7 +581,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   // "shooting brake" body style of "fren balatası".
   const vehicleWords=(parsed:ParsedSearch)=>fittedOnly?withoutSynonyms(parsed):parsed;
   const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
-   return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values,read)).rowCount);});
+   return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values,read)).rowCount);},read);
   if(!vehicle)continue;
   const fittedIds=await vehicleFittedIds(vehicleWords(vehicle.parsed),read);
   // Too broad to read live (liveVehicleTypeLimit): no vehicle reading; its product part is the fallback below.
@@ -587,7 +589,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   const linked=new Set(fittedIds);
   if(fittedOnly&&!linked.size)continue;
   let ids:string[]=[];
-  const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
+  const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0,read);
   if(!product)continue;
   const fitted=ids.filter(id=>linked.has(id));
   if(fittedOnly&&!fitted.length)continue;
@@ -600,7 +602,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
  for(const productWords of tooBroad){
   let ids:string[]=[];
   const text=productWords.join(" ");
-  const product=await resolvePart(text,"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
+  const product=await resolvePart(text,"product",correct,async parsed=>(ids=await hits(parsed)).length>0,read);
   if(product)return product.text===text?{parsed:product.parsed,ids}:{parsed:product.parsed,ids,correctedQuery:product.text};
  }
  return null;
@@ -608,12 +610,12 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
 // Vehicle words must be whole words ("passat", "golf 7"), so a part word that only starts a make
 // ("hava" → HAVAL) does not split "hava filtresi" into a vehicle and a part.
 /** The part as typed, else (when `correct`) spell-corrected, if it `matches`; null otherwise. */
-async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean,matches:(parsed:ParsedSearch)=>Promise<boolean>){
+async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean,matches:(parsed:ParsedSearch)=>Promise<boolean>,read?:ReadOptions){
  const options={years:scope==="vehicle"},parse=(value:string)=>scope==="vehicle"?wholeWords(parseSearchQuery(value,options)):parseSearchQuery(value,options);
  const parsed=parse(text);
  if(await matches(parsed))return {text,parsed};
  if(!correct)return null;
- const corrected=await correctSearch(text,scope,options);
+ const corrected=await correctSearch(text,scope,options,read?.timeoutMs);
  const correctedParsed=corrected&&parse(corrected.text);
  return corrected&&correctedParsed&&await matches(correctedParsed)?{text:corrected.text,parsed:correctedParsed}:null;
 }
@@ -984,14 +986,27 @@ const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(
 // The type-ahead's hit set (#1394): the ids it ranks (at most maxRankedSuggestions) and whether there were more, kept like
 // the API rankings so a keystroke repeated within 10 minutes sends no hit read; names and products below stay live.
 // Its reads run under the type-ahead's limit (suggestStatementTimeoutMs, 5 s, #1398), not the listing's 55 s; a load that
-// hits it fails and is not kept. No abort signal: the load is shared by every request for the key, and one visitor
+// hits it fails and is not kept, but a key that timed out is held for SEARCH_FAILURE_HOLD_MS (#1416): it rejects with the
+// same error at once instead of reading again on every keystroke, and staleCache still serves an earlier value where there is
+// one. No abort signal: the load is shared by every request for the key, and one visitor
 // typing on must not cancel it for the others.
 type SuggestSearch=Pick<CatalogSearch,"parsed"|"correctedQuery"|"vehicle">&{ids:string[];many:boolean};
 const cachedSuggestSearches=staleCache<SuggestSearch>(aggregateTtl,500,{...listings,...boundedWait,fallbackWhen:search=>search.ids.length>0,weigh:search=>search.ids.length,maxWeight:100_000});
-const suggestSearch=(raw:string,mode:SearchMode)=>cachedSuggestSearches(apiSearchKey(raw,mode),async()=>{
- const {parsed,correctedQuery,vehicle,ids}=await searchCatalog(raw,mode,{timeoutMs:suggestStatementTimeoutMs()});
- return {parsed,correctedQuery,vehicle,ids:ids.slice(0,maxRankedSuggestions),many:ids.length>maxRankedSuggestions};
-},{epoch:searchEpoch(raw,mode)});
+const suggestHold=failureHold(searchFailureHoldMs,500);
+const suggestSearch=(raw:string,mode:SearchMode)=>{
+ const key=apiSearchKey(raw,mode);
+ return cachedSuggestSearches(key,async()=>{
+  const held=suggestHold.failure(key);
+  if(held)throw held.error;
+  try{
+   const {parsed,correctedQuery,vehicle,ids}=await searchCatalog(raw,mode,{timeoutMs:suggestStatementTimeoutMs()});
+   return {parsed,correctedQuery,vehicle,ids:ids.slice(0,maxRankedSuggestions),many:ids.length>maxRankedSuggestions};
+  }catch(error){
+   if(isStatementTimeout(error)||isPoolTimeout(error))suggestHold.hold(key,error);
+   throw error;
+  }
+ },{epoch:searchEpoch(raw,mode)});
+};
 const apiSearch=async(raw:string,mode:SearchMode)=>sharedApiSearches(`${await searchEpoch(raw,mode)()}|${apiSearchKey(raw,mode)}`,()=>catalogSearch(raw,mode));
 /**
  * The first rankedSearchDepth saleable matches of a search (no unavailable cards), in the storefront's relevance order

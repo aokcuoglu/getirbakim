@@ -5,7 +5,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 // path-style GET/HEAD/PUT of whole objects with their x-amz-meta-* metadata and ListObjectsV2 (prefix, delimiter,
 // continuation-token) on 127.0.0.1, nothing else. Anything it does not understand answers 501 and is recorded in `unsupported`.
 // `puts`, `gets` and `heads` record the object paths (bucket/key) of the requests it served; a path in `failPuts` answers
-// a PUT with 403 AccessDenied and is not written. `latencyMs` delays every response (a round trip to a remote store).
+// a PUT with 403 AccessDenied and is not written. A PUT may carry x-amz-checksum-sha256 (#1417): it is checked against the
+// bytes received, a mismatch answers 400 BadDigest and writes nothing, a match is echoed as S3 does and its path recorded
+// in `checksummedPuts`. Any other x-amz-checksum-* header is not supported. A path in `corruptPuts` has its first body byte
+// flipped on arrival (a transfer that went wrong). `latencyMs` delays every response (a round trip to a remote store).
 
 export type StubObject = { bytes: Buffer; contentType: string; metadata?: Record<string, string> };
 export type S3Stub = Awaited<ReturnType<typeof startS3Stub>>;
@@ -19,7 +22,8 @@ const metadataHeaders = (object: StubObject) => Object.fromEntries(Object.entrie
 export async function startS3Stub(options: { latencyMs?: number } = {}) {
   const { latencyMs = 0 } = options;
   const objects = new Map<string, StubObject>();
-  const state = { puts: [] as string[], gets: [] as string[], heads: [] as string[], unsupported: [] as string[], failPuts: new Set<string>() };
+  const state = { puts: [] as string[], gets: [] as string[], heads: [] as string[], unsupported: [] as string[], failPuts: new Set<string>(),
+    checksummedPuts: [] as string[], corruptPuts: new Set<string>() };
   const handle = (req: IncomingMessage, res: ServerResponse, chunks: Buffer[]) => {
     const path = (req.url ?? "").split("?")[0].split("/").filter(Boolean).map(segment => decodeURIComponent(segment)).join("/");
     const fail = (status: number, code: string) => { res.writeHead(status, { "Content-Type": "application/xml" }); res.end(`<Error><Code>${code}</Code></Error>`); };
@@ -69,12 +73,21 @@ export async function startS3Stub(options: { latencyMs?: number } = {}) {
       return void res.end();
     }
     if (req.method === "PUT") {
+      const checksums = Object.keys(req.headers).filter(name => name.startsWith("x-amz-checksum-"));
+      if (checksums.some(name => name !== "x-amz-checksum-sha256")) {
+        state.unsupported.push(`PUT ${path} (${checksums.join(",")})`);
+        return fail(501, "NotImplemented");
+      }
       if (state.failPuts.has(path)) return fail(403, "AccessDenied");
       const bytes = Buffer.concat(chunks);
+      if (state.corruptPuts.has(path) && bytes.length) bytes[0] ^= 0xff;
+      const checksum = req.headers["x-amz-checksum-sha256"];
+      if (checksum !== undefined && checksum !== createHash("sha256").update(bytes).digest("base64")) return fail(400, "BadDigest");
       const metadata = Object.fromEntries(Object.entries(req.headers).filter(([name]) => name.startsWith(META)).map(([name, value]) => [name.slice(META.length), String(value)]));
       objects.set(path, { bytes, contentType: String(req.headers["content-type"] ?? "application/octet-stream"), ...(Object.keys(metadata).length ? { metadata } : {}) });
       state.puts.push(path);
-      res.writeHead(200, { ETag: etag(bytes), "Content-Length": 0 });
+      if (checksum !== undefined) state.checksummedPuts.push(path);
+      res.writeHead(200, { ETag: etag(bytes), "Content-Length": 0, ...(checksum !== undefined ? { "x-amz-checksum-sha256": checksum } : {}) });
       return void res.end();
     }
     state.unsupported.push(`${req.method} ${path}`);
@@ -101,7 +114,8 @@ export async function startS3Stub(options: { latencyMs?: number } = {}) {
 export function stubEnv(url: string) {
   return {
     S3_ENDPOINT: url, S3_REGION: "us-east-1", S3_ACCESS_KEY_ID: "test", S3_SECRET_ACCESS_KEY: "test-secret",
-    // Plain PUT bodies: the stub does not decode aws-chunked uploads with trailing checksums.
+    // Plain PUT bodies: the stub does not decode aws-chunked uploads with trailing checksums, nor checks a checksum other than
+    // the x-amz-checksum-sha256 header the media writers send themselves (#1417), which the SDK leaves alone either way.
     AWS_REQUEST_CHECKSUM_CALCULATION: "WHEN_REQUIRED", AWS_RESPONSE_CHECKSUM_VALIDATION: "WHEN_REQUIRED",
   };
 }

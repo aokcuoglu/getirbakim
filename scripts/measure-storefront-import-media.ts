@@ -138,7 +138,7 @@ try {
       importer, phase, objects, rows, objectBytes, latencyMs, wallMs, longestTransactionMs,
       importerMediaMs: logged ? Number(logged[1]) : null, importerTransactionMs: logged ? Number(logged[2]) : null,
       puts: targetStub.puts.length, gets: targetStub.gets.length, heads: targetStub.heads.length,
-      mediaUploaded: report.mediaUploaded ?? null, mediaVerified: report.mediaVerified ?? null,
+      mediaUploaded: report.mediaUploaded ?? null, mediaReadBack: report.mediaReadBack ?? null, mediaVerified: report.mediaVerified ?? null,
     }));
   }
 } finally {
