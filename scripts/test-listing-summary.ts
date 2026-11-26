@@ -12,8 +12,8 @@ import type { CatalogQuery } from "../src/modules/store/catalog-query";
 // filter loads its count, page-1 ids and facets from one statement (listingSummary), with the same values the separate
 // statements give (LISTING_ONE_SCAN=0), one scan per cold page, a new scan after an epoch bump, and the three stored
 // rows as before. The listing and search reads' server-side limit (#1377, LISTING_STATEMENT_TIMEOUT_MS) is checked with
-// real statement timeouts: another session locks supplier_items in this schema while a read runs. Nothing is written to
-// the shared database's tables.
+// real statement timeouts: another session locks supplier_items in this schema while a read runs. So is the cancel of an
+// aborted request's reads (#1398). Nothing is written to the shared database's tables.
 type Catalog = typeof import("../src/modules/store/catalog");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let catalog: Catalog;
@@ -405,4 +405,64 @@ test("LISTING_STATEMENT_TIMEOUT_MS=0 sends the reads as plain statements; by def
   assert.deepEqual(await limits(on, filtered, undefined), ["SET LOCAL statement_timeout = 55000"]);
   assert.deepEqual(await limits(off, outOfStock, "0"), ["SET LOCAL statement_timeout = 30000"]);
   assert.deepEqual(await limits(on, outOfStock, undefined), ["SET LOCAL statement_timeout = 30000"]);
+});
+
+/** Sessions running exactly `text` now. */
+const running = async (text: string) => (await schema.pool.query<{ n: number }>(
+  "SELECT count(*)::int AS n FROM pg_stat_activity WHERE state='active' AND query=$1", [text])).rows[0].n;
+
+test("boundedQuery cancels a running read when its signal aborts: the signal's reason within 1 s, nothing left running, the connection reused (#1398)", async t => {
+  const { boundedQuery, db } = await import("../src/lib/db");
+  const warned = t.mock.method(console, "warn", () => {});
+  const logged = t.mock.method(console, "error", () => {});
+  await db.query("SELECT 1");
+  const connections = db.totalCount;
+  // Named after the schema, so a parallel run of this file is not counted.
+  const sleepSql = `SELECT pg_sleep(5) AS ${schema.name}`;
+  const controller = new AbortController(), reason = new Error("visitor left");
+  const read = timed(() => boundedQuery("test.abort", sleepSql, [], 10_000, { signal: controller.signal }));
+  assert.equal(await until(() => running(sleepSql), n => n === 1), 1, "running on the server");
+  await sleep(100);
+  const aborted = Date.now();
+  controller.abort(reason);
+  const { error } = await read;
+  const ms = Date.now() - aborted;
+  assert.equal(error, reason, "rejects with the signal's reason");
+  assert.ok(ms < 1_000, `${ms} ms`);
+  assert.equal(await until(() => running(sleepSql), n => n === 0, 1_000), 0, "cancelled on the server, long before its 10 s limit");
+  const lines = logLines(warned).filter(line => line.startsWith("boundedQuery "));
+  assert.equal(lines.length, 1, lines.join("\n"));
+  assert.match(lines[0], /^boundedQuery cancelled: test\.abort \(\d+ ms\)$/);
+  assert.ok(!logLines(logged).some(line => line.startsWith("boundedQuery timeout")), logLines(logged).join("\n"));
+  // The cancelled connection went back idle, its transaction rolled back: the next reads take it again.
+  for (let n = 0; n < 20; n++) assert.deepEqual((await boundedQuery("test.after", "SELECT 1 AS n", [], 5_000)).rows, [{ n: 1 }]);
+  assert.ok(db.totalCount <= connections, `${db.totalCount} connections, ${connections} before: the cancel used its own`);
+});
+
+test("boundedQuery sends nothing for an aborted signal, refuses a signal on a write, and sends its statements unchanged without one (#1398)", async () => {
+  const { boundedQuery } = await import("../src/lib/db");
+  const controller = new AbortController(), reason = new Error("gone");
+  controller.abort(reason);
+  assert.deepEqual(await sentTexts(() => assert.rejects(boundedQuery("test.aborted", "SELECT 1", [], 5_000, { signal: controller.signal }), error => error === reason)), []);
+  await assert.rejects(boundedQuery("test.write", "SELECT 1", [], 5_000, { write: true, signal: new AbortController().signal }), /only a read/);
+  assert.deepEqual(await sentTexts(() => boundedQuery("test.plain", "SELECT 1", [], 1_234)), ["BEGIN READ ONLY", "SET LOCAL statement_timeout = 1234", "SELECT 1", "COMMIT"]);
+  assert.deepEqual(await sentTexts(() => boundedQuery("test.workMem", "SELECT 1", [], 1_234, { workMem: "8MB" })),
+    ["BEGIN READ ONLY", "SET LOCAL statement_timeout = 1234", "SET LOCAL work_mem = '8MB'", "SELECT 1", "COMMIT"]);
+  // With a signal, the limit and the backend's pid in one round trip.
+  assert.deepEqual(await sentTexts(() => boundedQuery("test.signal", "SELECT 1", [], 1_234, { signal: new AbortController().signal })),
+    ["BEGIN READ ONLY", "SELECT set_config('statement_timeout',$1,true), pg_backend_pid() AS pid", "SELECT 1", "COMMIT"]);
+});
+
+test("an abort after the read has settled cancels nothing: the next read answers, no cancelled line (#1398)", async t => {
+  const { boundedQuery } = await import("../src/lib/db");
+  const warned = t.mock.method(console, "warn", () => {});
+  const controller = new AbortController();
+  assert.deepEqual((await boundedQuery("test.settled", "SELECT 1 AS n", [], 5_000, { signal: controller.signal })).rows, [{ n: 1 }]);
+  const texts = await sentTexts(async () => {
+    controller.abort(new Error("late"));
+    await sleep(50);
+    assert.deepEqual((await boundedQuery("test.next", "SELECT 2 AS n", [], 5_000)).rows, [{ n: 2 }]);
+  });
+  assert.ok(!texts.some(text => text.includes("pg_cancel_backend")), texts.join("\n"));
+  assert.ok(!logLines(warned).some(line => line.startsWith("boundedQuery cancelled")), logLines(warned).join("\n"));
 });
