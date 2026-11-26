@@ -882,6 +882,70 @@ test("a stock-filtered listing stores its deep pages' order below the filtered m
   assert.deepEqual((await storedRows()).map(row => row.filtered), [true]);
 });
 
+// LISTING_STOCK_MAX_SERVE_MS (#1453): a stock-filtered key idle past it is reloaded before it is served; others keep
+// stale-while-revalidate. The mocked clock moves the in-memory ages; the stored row's age is set in SQL.
+const hour = 60 * 60 * 1000;
+const browsed = async (query: CatalogQuery, from: Catalog) => { const result = await inRequest(() => from.browseProducts(query)); return { ids: result.items.map(item => item.id), total: result.total }; };
+async function idleAcrossStockChange(t: import("node:test").TestContext, name: string, setting: string | undefined) {
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const proc = await otherProcess(name);
+  const stockKey: CatalogQuery = { availability: "in_stock" }, plainKey: CatalogQuery = { brand: "BOSCH" };
+  const [stockBefore, plainBefore] = [await browsed(stockKey, proc), await browsed(plainKey, proc)];
+  const soldOut = stockBefore.ids[0], promoted = plainBefore.ids[plainBefore.ids.length - 1];
+  const originalStock = (await schema.pool.query<{ stock_data: unknown }>("SELECT stock_data FROM supplier_items WHERE id=$1", [soldOut])).rows[0].stock_data;
+  await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":0}' WHERE id=$1`, [soldOut]);
+  const originalChanged = (await schema.pool.query<{ changed_at: Date }>("SELECT changed_at FROM supplier_items WHERE id=$1", [promoted])).rows[0].changed_at;
+  await schema.pool.query("UPDATE supplier_items SET changed_at=now()+interval '1 day' WHERE id=$1", [promoted]);
+  try {
+    t.mock.timers.tick(2 * hour);
+    return await withEnv({ LISTING_STOCK_MAX_SERVE_MS: setting }, async () => ({
+      stockBefore, plainBefore, soldOut, promoted,
+      stockNow: await browsed(stockKey, proc), plainNow: await browsed(plainKey, proc),
+    }));
+  } finally {
+    await schema.pool.query("UPDATE supplier_items SET stock_data=$2 WHERE id=$1", [soldOut, originalStock]);
+    await schema.pool.query("UPDATE supplier_items SET changed_at=$2 WHERE id=$1", [promoted, originalChanged]);
+    await quiet();
+  }
+}
+test("a stock-filtered key idle for two hours returns the fresh order and total at once; a brand listing still serves stale once (#1453)", async t => {
+  const seen = await idleAcrossStockChange(t, "stock-max-serve", undefined);
+  assert.equal(seen.stockNow.total, seen.stockBefore.total - 1, "the fresh total");
+  assert.ok(!seen.stockNow.ids.includes(seen.soldOut), "the sold-out card is gone from the in-stock page");
+  assert.deepEqual(seen.plainNow, seen.plainBefore, "the plain key serves its old order once");
+});
+test("LISTING_STOCK_MAX_SERVE_MS=0 turns the bound off: the idle stock-filtered key serves stale once (#1453)", async t => {
+  const seen = await idleAcrossStockChange(t, "stock-max-serve-off", "0");
+  assert.deepEqual(seen.stockNow, seen.stockBefore);
+});
+test("a stock-filtered deep page's stored order older than the limit is not adopted: its build runs before the page is served; a plain listing's row of that age is sliced first (#1390, #1453)", async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const stockQuery: CatalogQuery = { availability: "in_stock", sort: "price-desc", page: "21" }, plainQuery = bosch("price-desc", 21);
+  const builder = await otherProcess("stock-adopt-build");
+  await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, async () => { await pageIds(stockQuery, builder); await pageIds(plainQuery, builder); });
+  await quiet();
+  assert.equal((await storedRows()).length, 2);
+  await priceOrder.sliceTouchesSettled();
+  // What the page sends first on the stored order: a slice (the row was adopted) or a build (it was not).
+  const firstUse = async (query: CatalogQuery, name: string) => {
+    await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '2 hours'");
+    const proc = await otherProcess(name), uses: string[] = [];
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, () => intercepted(text => {
+      if (text.includes("INSERT INTO storefront_listing_price_orders")) uses.push("build");
+      else if (text.includes("SELECT ids[$2::int:$3::int]")) uses.push("slice");
+      return undefined;
+    }, () => pageIds(query, proc)));
+    await quiet();
+    return uses[0];
+  };
+  assert.equal(await firstUse(plainQuery, "stock-adopt-plain"), "slice", "the plain row is adopted");
+  assert.equal(await firstUse(stockQuery, "stock-adopt-stock"), "build", "the over-age stock row is rebuilt first");
+  await withEnv({ LISTING_STOCK_MAX_SERVE_MS: "0" }, async () => {
+    assert.equal(await firstUse(stockQuery, "stock-adopt-off"), "slice", "with the bound off it is adopted");
+  });
+});
+
 test("LISTING_PRICE_ORDER_FILTERED=0 neither stores nor reads a filtered order, the plain ones go on; a search stores none at the minimum (#1390)", () => withEnv(anyFiltered, async () => {
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
   const proc = await otherProcess("filtered-off");

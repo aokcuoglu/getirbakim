@@ -910,3 +910,37 @@ test("SEARCH_FACETS_CACHE=0 sends the live statements and never touches the cach
   const on = await sent(async () => assert.deepEqual(await facetsOf(scope, {}, proc), expected));
   assert.deepEqual({ brands: on.facetBrands, attributes: on.facetAttributes }, { brands: 1, attributes: 1 }, "the switch left nothing in the cache");
 });
+
+// LISTING_STOCK_MAX_SERVE_MS (#1453): a stock-filtered search order idle past the limit is reloaded before it is served.
+const hour = 60 * 60 * 1000;
+async function idleSearchAcrossChanges(t: import("node:test").TestContext, name: string, setting: string | undefined) {
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const proc = await otherProcess(name);
+  const stockQuery: CatalogQuery = { q: "fren", sort: asc, availability: "in_stock" }, plainQuery: CatalogQuery = { q: "fren", sort: asc };
+  const [stockBefore, plainBefore] = [shape(await browse(stockQuery, {}, proc)), shape(await browse(plainQuery, {}, proc))];
+  const soldOut = stockBefore.ids[0], repriced = plainBefore.ids[plainBefore.ids.length - 1];
+  const originalStock = (await schema.pool.query<{ stock_data: unknown }>("SELECT stock_data FROM supplier_items WHERE id=$1", [soldOut])).rows[0].stock_data;
+  const originalPrice = await priceOf(repriced);
+  await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":0}' WHERE id=$1`, [soldOut]);
+  await schema.pool.query("UPDATE supplier_items SET price_data='{\"nf\":1}' WHERE id=$1", [repriced]);
+  try {
+    t.mock.timers.tick(2 * hour);
+    return await withEnv({ LISTING_STOCK_MAX_SERVE_MS: setting }, async () => ({
+      stockBefore, plainBefore, soldOut, stockNow: shape(await browse(stockQuery, {}, proc)), plainNow: shape(await browse(plainQuery, {}, proc)),
+    }));
+  } finally {
+    await schema.pool.query("UPDATE supplier_items SET stock_data=$2 WHERE id=$1", [soldOut, originalStock]);
+    await schema.pool.query("UPDATE supplier_items SET price_data=$2 WHERE id=$1", [repriced, originalPrice]);
+  }
+}
+test("a stock-filtered search order idle for two hours returns the fresh order and total at once; a search without a stock filter serves stale once (#1453)", async t => {
+  const seen = await idleSearchAcrossChanges(t, "stock-max-serve", undefined);
+  assert.equal(seen.stockNow.total, seen.stockBefore.total - 1, "the fresh total");
+  assert.ok(!seen.stockNow.ids.includes(seen.soldOut), "the sold-out card is gone");
+  assert.deepEqual(seen.plainNow, seen.plainBefore, "the unfiltered search serves its old order once");
+});
+test("LISTING_STOCK_MAX_SERVE_MS=0 turns the bound off for search orders: the idle stock-filtered one serves stale once (#1453)", async t => {
+  const seen = await idleSearchAcrossChanges(t, "stock-max-serve-off", "0");
+  assert.deepEqual(seen.stockNow, seen.stockBefore);
+});

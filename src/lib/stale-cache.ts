@@ -31,6 +31,20 @@ export type StaleCacheStore<T> = {
   read(key: string): Promise<{ value: T; ageMs: number; epoch: number } | null>;
   write(key: string, value: T, epoch: number): Promise<void>;
 };
+/** Per-call options of the function staleCache returns. */
+type CallOptions = {
+  persist?: boolean; epoch?: () => Promise<number>;
+  /**
+   * A hard bound on the age of the value this call may be served (#1453), counted from the entry's `loadedAt` (an adopted
+   * stored value counts its stored age); 0 or unset: none, the default behaviour. An entry older than it is not served
+   * stale: the caller awaits a reload, as for a cold key, and concurrent callers share that one load (the reload is
+   * the entry; later callers find it pending). It also bounds what a miss may take from the store (maxStaleMs) and what
+   * maxWaitMs may serve as an earlier value (a stored row, or the entry an epoch bump replaced): a value older than it is
+   * never served at once. If the reload of an over-age entry fails, the old value is served after all, with a logged error,
+   * and the next request tries again: a stale page beats an error page. A cold key (nothing to serve) still gets the error.
+   */
+  maxServeMs?: number;
+};
 /**
  * A load: `at` is the epoch value the entry is loaded under (0 without an epoch), the one a stored value is written with.
  * A load that tags data of its own with an epoch (a stored price order) uses this value, so the tag and the entry agree.
@@ -117,11 +131,11 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   // `stored` hears what the read found that is not adopted and at most maxFallbackMs old (an earlier value for
   // maxWaitMs), or null.
   const obtain = async (key: string, load: Load<T>, at: number, persist: boolean, maxAgeMs: number,
-    stored: (earlier: Earlier<T>) => void = () => {}): Promise<Loaded<T>> => {
+    stored: (earlier: Earlier<T>) => void = () => {}, fallbackMs = maxFallbackMs): Promise<Loaded<T>> => {
     if (persist && store) {
       const row = await Promise.resolve().then(() => store.read(key)).catch(() => null);
       const adopted = row && row.epoch >= at && row.ageMs <= maxAgeMs;
-      stored(row && !adopted && row.ageMs <= maxFallbackMs ? { value: row.value } : null);
+      stored(row && !adopted && row.ageMs <= fallbackMs ? { value: row.value } : null);
       if (adopted) return { value: row.value, ageMs: Math.max(0, row.ageMs) };
     }
     const value = await load(at);
@@ -167,22 +181,27 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   const earlierOf = (entry: Entry<T>): Promise<Earlier<T>> => entry.known ? Promise.resolve(entry.known)
     : entry.earlier ? entry.earlier() : entry.value.then(value => ({ value }), () => null);
   const usable = (found: Earlier<T>): Earlier<T> => found && fallbackWhen(found.value) ? found : null;
-  const insert = (key: string, load: Load<T>, epoch: number | undefined, persist: boolean, previous?: Entry<T>) => {
+  // `maxServe` (CallOptions.maxServeMs, 0: none) bounds the age of anything this load's callers are served before it settles.
+  // `overAge`: `previous` is older than that, so it is no earlier value to wait past: callers wait for the load (its failure
+  // still serves `previous`).
+  const insert = (key: string, load: Load<T>, epoch: number | undefined, persist: boolean, previous?: Entry<T>, maxServe = 0, overAge = false) => {
     const loadedAt = Date.now();
-    const bound = maxWaitMs === undefined ? Infinity : typeof maxWaitMs === "function" ? maxWaitMs() : maxWaitMs;
+    const bound = overAge ? Infinity : maxWaitMs === undefined ? Infinity : typeof maxWaitMs === "function" ? maxWaitMs() : maxWaitMs;
+    const youngEnough = (ageMs: number) => !maxServe || ageMs <= maxServe;
     // With a finite bound, what a waiting caller may get: the replaced entry's value (earlierOf), or a stored value this
     // memory miss reads but may not adopt. Read when the bound passes, so a replaced entry that settled by then counts.
     let foundStored: (found: Earlier<T>) => void = () => {};
     let earlier: (() => Promise<Earlier<T>>) | undefined;
     if (Number.isFinite(bound)) {
-      if (previous) earlier = () => earlierOf(previous).then(usable);
+      if (previous) earlier = () => earlierOf(previous).then(found => youngEnough(Date.now() - previous.loadedAt) ? usable(found) : null);
       else if (persist && store) {
         const stored = new Promise<Earlier<T>>(resolve => { foundStored = found => resolve(usable(found)); });
         earlier = () => stored;
       }
     }
     // A memory miss may adopt a value up to maxStaleMs old; an epoch reload only one another process just computed.
-    const value = obtain(key, load, epoch ?? 0, persist, previous ? ttlMs : maxStaleMs, foundStored).then(loaded => {
+    const value = obtain(key, load, epoch ?? 0, persist, Math.min(previous ? ttlMs : maxStaleMs, maxServe || Infinity), foundStored,
+      Math.min(maxFallbackMs, maxServe || Infinity)).then(loaded => {
       fresh.known = { value: loaded.value };
       if (loaded.ageMs !== undefined) {
         fresh.loadedAt = Date.now() - loaded.ageMs;
@@ -228,18 +247,20 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     if (entries.size > maxEntries) drop(entries.keys().next().value!);
     return serve(fresh);
   };
-  const read = (key: string, load: Load<T>, epoch: number | undefined, persist: boolean): Promise<T> => {
+  const read = (key: string, load: Load<T>, epoch: number | undefined, persist: boolean, maxServe: number): Promise<T> => {
     const entry = entries.get(key);
-    if (!entry) return insert(key, load, epoch, persist);
+    if (!entry) return insert(key, load, epoch, persist, undefined, maxServe);
     // An entry from an older epoch is stale; one from a newer epoch (a racing read saw the bump first) is kept.
-    if (epoch !== undefined && (entry.epoch === undefined || entry.epoch < epoch)) return insert(key, load, epoch, persist, entry);
+    if (epoch !== undefined && (entry.epoch === undefined || entry.epoch < epoch)) return insert(key, load, epoch, persist, entry, maxServe);
+    // A settled entry past the hard bound is reloaded before it is served (#1453); a pending one is young by construction.
+    if (maxServe && entry.known && Date.now() - entry.loadedAt > maxServe) return insert(key, load, epoch, persist, entry, maxServe, true);
     // Map order doubles as recency for eviction.
     entries.delete(key); entries.set(key, entry);
     if (!entry.refreshing && Date.now() - entry.loadedAt > ttlMs) refresh(key, entry, load, epoch ?? 0, persist);
     return serve(entry);
   };
-  return (key: string, load: Load<T>, { persist = true, epoch: own }: { persist?: boolean; epoch?: () => Promise<number> } = {}): Promise<T> => {
-    const shared = persist && Boolean(store), source = own ?? epoch;
-    return source ? source().then(current => read(key, load, current, shared)) : read(key, load, undefined, shared);
+  return (key: string, load: Load<T>, { persist = true, epoch: own, maxServeMs }: CallOptions = {}): Promise<T> => {
+    const shared = persist && Boolean(store), source = own ?? epoch, maxServe = maxServeMs !== undefined && maxServeMs > 0 ? maxServeMs : 0;
+    return source ? source().then(current => read(key, load, current, shared, maxServe)) : read(key, load, undefined, shared, maxServe);
   };
 }

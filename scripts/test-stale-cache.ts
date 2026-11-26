@@ -410,3 +410,92 @@ test("db: two copies of the module (instrumentation and route bundles) share one
     else globals.getirbakimPool = previous;
   }
 });
+
+// maxServeMs (#1453). A mocked clock moves loadedAt, so ages are exact.
+const serveAge = async (t: import("node:test").TestContext, options: { maxWaitMs?: number } = {}) => {
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const cache = staleCache<string>(1000, 100, options);
+  let loads = 0, current = "v1";
+  const load = async () => { loads++; return current; };
+  return { cache, load, loads: () => loads, set: (value: string) => { current = value; } };
+};
+const settle = () => new Promise(done => setImmediate(done));
+
+test("maxServeMs: an entry past it is reloaded before it is served; a younger one is served stale while one refresh runs", async t => {
+  const { cache, load, loads, set } = await serveAge(t);
+  assert.equal(await cache("k", load, { maxServeMs: 5000 }), "v1");
+  set("v2");
+  t.mock.timers.tick(2000);
+  assert.equal(await cache("k", load, { maxServeMs: 5000 }), "v1", "past the TTL, within the bound: stale once");
+  await settle();
+  assert.equal(loads(), 2, "one background refresh");
+  set("v3");
+  t.mock.timers.tick(5001);
+  assert.equal(await cache("k", load, { maxServeMs: 5000 }), "v3", "past the bound: the caller gets the reload");
+  assert.equal(loads(), 3);
+});
+
+test("maxServeMs: concurrent callers past the bound share one reload", async t => {
+  const { cache } = await serveAge(t);
+  await cache("k", async () => "v1", { maxServeMs: 5000 });
+  t.mock.timers.tick(6000);
+  let release!: () => void, calls = 0;
+  const gate = new Promise<void>(done => { release = done; });
+  const slow = async () => { calls++; await gate; return "v2"; };
+  const readers = [1, 2, 3].map(() => cache("k", slow, { maxServeMs: 5000 }));
+  await settle();
+  release();
+  assert.deepEqual(await Promise.all(readers), ["v2", "v2", "v2"]);
+  assert.equal(calls, 1);
+});
+
+test("maxServeMs: a failed reload of an over-age entry serves the old value, logs, and the next request tries again; a cold key rejects", async t => {
+  const { cache, load } = await serveAge(t);
+  const logged = t.mock.method(console, "error", () => {});
+  await cache("k", load, { maxServeMs: 5000 });
+  t.mock.timers.tick(6000);
+  assert.equal(await cache("k", async () => { throw new Error("boom"); }, { maxServeMs: 5000 }), "v1");
+  assert.equal(logged.mock.callCount(), 1);
+  assert.equal(await cache("k", async () => "v2", { maxServeMs: 5000 }), "v2", "the over-age entry was put back, so the next request reloads");
+  await assert.rejects(cache("cold", async () => { throw new Error("boom"); }, { maxServeMs: 5000 }), /boom/);
+});
+
+test("maxServeMs: a bounded wait never serves the over-age entry as an earlier value", async t => {
+  const { cache } = await serveAge(t, { maxWaitMs: 0 });
+  await cache("k", async () => "v1", { maxServeMs: 5000 });
+  t.mock.timers.tick(6000);
+  let release!: () => void;
+  const gate = new Promise<void>(done => { release = done; });
+  const read = cache("k", async () => { await gate; return "v2"; }, { maxServeMs: 5000 });
+  let done = false;
+  void read.then(() => { done = true; });
+  await settle();
+  assert.equal(done, false, "waits for the load");
+  release();
+  assert.equal(await read, "v2");
+});
+
+test("without maxServeMs (or with 0) an idle entry of any age is served stale once, as before", async t => {
+  for (const options of [undefined, { maxServeMs: 0 }]) {
+    const { cache, load, loads, set } = await serveAge(t);
+    await cache("k", load, options);
+    set("v2");
+    t.mock.timers.tick(10 * 60 * 60 * 1000);
+    assert.equal(await cache("k", load, options), "v1");
+    await settle();
+    assert.equal(loads(), 2);
+    assert.equal(await cache("k", load, options), "v2");
+  }
+});
+
+test("maxServeMs bounds what a memory miss adopts from the store", async t => {
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const row = { value: "stored", ageMs: 30_000, epoch: 0 };
+  const store = { read: async () => row, write: async () => {} };
+  const cache = staleCache<string>(1000, 100, { store, maxStaleMs: 60_000 });
+  assert.equal(await cache("old", async () => "fresh", { maxServeMs: 10_000 }), "fresh", "a row past the bound is not adopted");
+  assert.equal(await cache("ok", async () => "fresh", { maxServeMs: 40_000 }), "stored", "a younger row is");
+  assert.equal(await cache("unbounded", async () => "fresh"), "stored");
+});
