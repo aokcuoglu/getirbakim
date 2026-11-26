@@ -541,18 +541,21 @@ const hitsPerLiveType=300;
  * refresh (a fitment change or an admin's decision shows after the background sync and its fits bump, at most ~30 s), as
  * on the make and model pages; unlike modelFittedIds no models read from supplier descriptions count: the search never
  * counted them. `words` names the vehicle in the statement labels. Two reads of the same rows, chosen by `by`:
- * - "hits", unless there are at least hitsPerLiveType hits per type: from the hits outward, one statement. Each hit is
- *   checked against the whole models' fits by index; the rest reach their donor enrichment through the shared link (the
- *   fittedProductIds trust rule, each donor's hits as one array), each donor's payload vehicles are read once (OFFSET 0)
- *   and compared with the donor's fitments to the scope's types; the admin's removed types drop a row's fitment, added
- *   ones list its hits. Its cost follows the hits, not the types, so an engine or fuel word is no longer a scan of every
- *   fitment: locally, warm, the same ids, "fren balatası dizel" (400 whole models + 10,649 types) 31.6 s → 0.6 s, "yağ
- *   filtresi benzin" (2,720 + 14,547) 39 s → 0.3-0.4 s, "fren balatası volkswagen tdi" (13 + 769) 4.3-6.6 s → 0.9 s, "fren
- *   balatası passat tdi" (120 types) 1.7-3.8 s → 0.8 s, "fren balatası bmw" (183 whole models) 0.36 s → 0.07 s.
- *   `f.vehicle_type_id+0` is load-bearing: on the bare column the planner probes product_vehicle_fitments_type_idx
- *   (vehicle_type_id, supplier_item_id) once per type and donor, 6.1M probes and 6.5 s for "fren balatası passat tdi";
- *   `+0` keeps the types out of the index condition, so a donor's few fitments are read through the primary key
- *   (supplier_item_id first) and tested against the hashed type array (0.76-0.9 s).
+ * - "hits", unless there are at least hitsPerLiveType hits per type: from the hits outward, one statement. The whole
+ *   models' fit rows are read once and joined to the hits; the other hits reach their donor enrichment through the
+ *   shared link (the fittedProductIds trust rule, each donor's hits as one array), each donor's payload vehicles are read
+ *   once (OFFSET 0) and compared with the donor's fitments to the scope's types; the admin's removed types drop a row's
+ *   fitment, added ones list its hits. Its cost follows the hits, not the types, so an engine or fuel word is no longer a
+ *   scan of every fitment: locally, the same ids, "fren balatası dizel" (400 whole models + 10,649 types) 31.6 s → 0.6-0.9
+ *   s, "yağ filtresi benzin" (2,720 + 14,547) 39 s → 0.5 s, "fren balatası volkswagen tdi" (13 + 769) 10.2 s → 0.8-1.1 s,
+ *   "fren balatası tdi" (21 + 1,890) 10.8 s → 0.8-1.1 s, "fren balatası passat tdi" (120 types) 1.2 s → 0.8 s.
+ *   Two plan traps: `f.vehicle_type_id+0` keeps the types out of the index condition, so a donor's few fitments are read
+ *   through the primary key (supplier_item_id first) and tested against the hashed type array; on the bare column the
+ *   planner probed product_vehicle_fitments_type_idx (vehicle_type_id, supplier_item_id) once per type and donor, 6.1M
+ *   probes and 6.5 s for "fren balatası passat tdi". And the whole models' rows are materialised before the join: as an
+ *   EXISTS per hit the planner searched storefront_model_fits_pkey (model_id, supplier_item_id) once per model and hit
+ *   for a few dozen models ("fren balatası golf", 30 models: 672k index searches, 0.4-0.7 s; "filtre golf" 1.1 s), where
+ *   the model rows take 40-75 ms.
  * - "types": the reading before #1407, from the scope outward: the whole models' fits and fittedProductIds over the types,
  *   kept to the hits in Node. It wins for few types against many hits: "filtre passat tdi" (41,612 hits, 120 types)
  *   1.3 s, against 1.5-3.7 s from the hits.
@@ -567,8 +570,8 @@ export async function vehicleFittedHits(scope:VehicleTypeScope,hitIds:string[],w
   scope.types.length?fittedProductIds(scope.types,`words=${words} types=${scope.types.length}:${scope.types.slice(0,10).join(",")}`,read):[],
  ])).flat():(await catalogRead<{id:string}>(`catalog.searchFittedHits words=${words} hits=${hitIds.length} models=${scope.models.length} types=${scope.types.length}`,
   `WITH hits AS MATERIALIZED (SELECT DISTINCT h.id FROM unnest($1::uuid[]) h(id)),
-  whole AS MATERIALIZED (SELECT h.id FROM hits h WHERE cardinality($2::int[])>0
-   AND EXISTS (SELECT 1 FROM storefront_model_fits f WHERE f.supplier_item_id=h.id AND f.model_id=ANY($2::int[]))),
+  model_rows AS MATERIALIZED (SELECT DISTINCT f.supplier_item_id AS id FROM storefront_model_fits f WHERE f.model_id=ANY($2::int[])),
+  whole AS MATERIALIZED (SELECT h.id FROM hits h JOIN model_rows m ON m.id=h.id),
   donors AS MATERIALIZED (SELECT l.donor_item_id,array_agg(l.supplier_item_id) AS items FROM hits h
    JOIN product_enrichment_shared_links l ON l.supplier_item_id=h.id
    JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
