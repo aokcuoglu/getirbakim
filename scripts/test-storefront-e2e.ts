@@ -577,7 +577,9 @@ test("run 3: changed vehicle data is sent again whatever digest the target confi
 });
 
 test("run 3: the static media digest flips when one logo changes, and the logos and category images travel again", { skip }, async () => {
+  // Not imported here; run 4's full export carries the changed logo and category image to the target.
   const bytes = randomBytes(24);
+  await source.pool.query("UPDATE source_category_images SET media_id=$1 WHERE source='trodo' AND category_id=2", [mediaId.mCat]);
   await source.pool.query("UPDATE manufacturer_logos SET image_data=$1,sha256=$2 WHERE brand_key='MANN'", [bytes, sha256(bytes)]);
   const full = join(dir, "full3-logo");
   await run("export-storefront-bundle.ts", [full, `--vehicle-digest=${state.digest}`, `--static-digest=${state.staticDigest}`], "source");
@@ -586,7 +588,9 @@ test("run 3: the static media digest flips when one logo changes, and the logos 
   assert.notEqual(manifest.staticMedia.digest, state.staticDigest);
   assert.equal(manifest.logos.length, 2);
   assert.equal(manifest.images.length, 1);
-  assert.ok((await readLines<{ id: string }>(join(full, "media.ndjson"))).some(row => row.id === mediaId.mA));
+  // mCat is referenced by nothing an enrichment or the vehicle data carries, so its media row travels only with the category images.
+  assert.deepEqual((manifest.images as { media_id: string }[]).map(row => row.media_id), [mediaId.mCat]);
+  assert.ok((await readLines<{ id: string }>(join(full, "media.ndjson"))).some(row => row.id === mediaId.mCat));
 });
 
 test("run 4: media the target already holds under another id and object key is reused by every table that references it (#1385)", { skip }, async () => {
@@ -604,7 +608,7 @@ test("run 4: media the target already holds under another id and object key is r
     await insertMedia(source.pool, object.sourceId, srcBucket, object.bundleKey, object);
     stub.objects.set(`${srcBucket}/${object.bundleKey}`, { bytes: object.bytes, contentType: "image/png" });
     await insertMedia(target.pool, object.existingId, dstBucket, object.existingKey, object);
-    stub.objects.set(`${dstBucket}/${object.existingKey}`, { bytes: object.bytes, contentType: "image/png" });
+    stub.objects.set(`${dstBucket}/${object.existingKey}`, { bytes: randomBytes(64), contentType: "image/png" });
   }
   const [forEnrichment, forCategory, forVehicle] = objects;
   await source.pool.query("UPDATE product_enrichments SET image_id=$2,imported_at=date_trunc('milliseconds',now()) WHERE supplier_item_id=$1", [sourceId["E2E-B"], forEnrichment.sourceId]);
@@ -634,9 +638,10 @@ test("run 4: media the target already holds under another id and object key is r
     const rows = (await target.pool.query<{ id: string; bucket: string; object_key: string }>("SELECT id,bucket,object_key FROM product_media_objects WHERE sha256=$1", [object.sha])).rows;
     assert.deepEqual(rows, [{ id: object.existingId, bucket: dstBucket, object_key: object.existingKey }], `${object.name}: the target's media rows`);
     assert.equal((await target.pool.query("SELECT 1 FROM product_media_objects WHERE object_key=$1", [object.bundleKey])).rowCount, 0);
-    // The importer writes the bytes to the existing object's key; the bundle's own key is never created.
+    // The bundle's own key is never written or created; the existing object holds the bundle's bytes (its stub bytes were different before).
     assert.ok(!stub.puts.some(path => path.endsWith(object.bundleKey) && path.startsWith(`${dstBucket}/`)), `${object.name}: the bundle's object key was uploaded`);
     assert.ok(!stub.objects.has(`${dstBucket}/${object.bundleKey}`));
+    // Current behaviour (#1406): the importer re-PUTs known objects; flip this when #1406 lands.
     assert.ok(stub.puts.includes(`${dstBucket}/${object.existingKey}`), `${object.name}: the existing object was not written`);
     assert.deepEqual(stub.objects.get(`${dstBucket}/${object.existingKey}`)!.bytes, object.bytes);
   }
