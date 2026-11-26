@@ -8,7 +8,7 @@ import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { drainSharedLinks } from "./enrichment-derived-sync";
-import { buildInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
+import { buildInboundReport, importerVersion, type PartReport, reportKey } from "./storefront-sync-state";
 import { objectStorage } from "../src/lib/object-storage";
 
 // Import side of sync-storefront-production.ts. Runs in the operations task, reads the parts that the sync uploaded
@@ -116,7 +116,7 @@ try {
   node([], "scripts/enrichment-states.ts", ["sync"]);
   // The data is committed by now, but without the report the sync cannot know what was skipped: the task fails, so
   // the sync keeps its watermark and the next run re-sends (idempotent). Each run overwrites the report.
-  const report = { snapshotAt, ...buildInboundReport(applied) };
+  const report = { snapshotAt, importerVersion: importerVersion(), ...buildInboundReport(applied) };
   console.log(JSON.stringify({ report: { ...report, skipped: report.skipped.length } }));
   const mediaBucket = process.env.S3_BUCKET;
   if (!mediaBucket) throw new Error("S3_BUCKET required for report.json");

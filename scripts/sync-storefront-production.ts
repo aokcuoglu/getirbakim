@@ -266,12 +266,12 @@ try {
       for (const warning of deletions.warnings) console.warn(`WARNING: ${warning}`);
       for (const note of deletions.notes) console.log(note);
       const vehicleOutcome = nextVehicleState({
-        previous: previous?.vehicle, exported: manifest.vehicle, totals: report.totals, taskDefinition: result.taskDefinition, now: new Date(),
+        previous: previous?.vehicle, exported: manifest.vehicle, totals: report.totals, taskDefinition: result.taskDefinition, importerVersion: report.importerVersion ?? null, now: new Date(),
       });
       for (const warning of vehicleOutcome.warnings) console.warn(`WARNING: ${warning}`);
       for (const note of vehicleOutcome.notes) console.log(note);
       const staticOutcome = nextStaticMediaState({
-        previous: previous?.staticMedia, exported: manifest.staticMedia, totals: report.totals, taskDefinition: result.taskDefinition, now: new Date(),
+        previous: previous?.staticMedia, exported: manifest.staticMedia, totals: report.totals, taskDefinition: result.taskDefinition, importerVersion: report.importerVersion ?? null, now: new Date(),
       });
       for (const warning of staticOutcome.warnings) console.warn(`WARNING: ${warning}`);
       for (const note of staticOutcome.notes) console.log(note);

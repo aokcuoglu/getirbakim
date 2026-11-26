@@ -15,7 +15,7 @@ import {
   uploadFailure, uploadParts, withS3Concurrency, type UploadIo,
 } from "./storefront-upload";
 import {
-  acquireLock, buildInboundReport, checkInboundReport, exportSummary, nextRetry, nextStaticMediaState, nextVehicleState, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs,
+  acquireLock, buildInboundReport, checkInboundReport, exportSummary, importerVersion, nextRetry, nextStaticMediaState, nextVehicleState, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs,
   parseVehicleDigest, releaseLock, reportKey, sinceFrom, STATE_PATH, staticMediaDigestToSkip, summarizeParts, tombstoneWarnings, VEHICLE_RESEND_DAYS, vehicleDigestToSkip, type StaticMediaState, type VehicleState,
 } from "./storefront-sync-state";
 
@@ -797,4 +797,58 @@ test("AccessDenied, NoSuchKey and NoSuchBucket fail on the first attempt", async
     assert.equal(calls, 1);
     assert.equal(isClockSkewError(failure), false);
   }
+});
+
+test("the importer version (#1380) decides over the task definition when both sides know it", () => {
+  const now = new Date("2026-11-26T05:00:00Z");
+  const TD41 = "getirbakim-operations:41", TD42 = "getirbakim-operations:42";
+  const vehicle = (extra: Partial<VehicleState>) => vehicleState("2026-11-24T05:00:00.000Z", extra);
+  const media = (extra: Partial<StaticMediaState>) => staticState("2026-11-24T05:00:00.000Z", extra);
+  const omittedVehicle = { digest: DIGEST, specs: 37937, images: 26617, sent: false };
+  const omittedMedia = { digest: DIGEST, images: 585, logos: 65, sent: false };
+  const runVehicle = (previous: VehicleState, taskDefinition: string | null, importerVersion: string | null) =>
+    nextVehicleState({ previous, exported: omittedVehicle, totals: {}, taskDefinition, importerVersion, now });
+  const runMedia = (previous: StaticMediaState, taskDefinition: string | null, importerVersion: string | null) =>
+    nextStaticMediaState({ previous, exported: omittedMedia, totals: {}, taskDefinition, importerVersion, now });
+
+  // Same version, new task definition (an env or secret deploy): both entries stay as they were.
+  const keptVehicle = vehicle({ taskDefinition: TD41, importerVersion: "aaa111" });
+  assert.deepEqual(runVehicle(keptVehicle, TD42, "aaa111"), { vehicle: keptVehicle, warnings: [], notes: [] });
+  const keptMedia = media({ taskDefinition: TD41, importerVersion: "aaa111" });
+  assert.deepEqual(runMedia(keptMedia, TD42, "aaa111"), { staticMedia: keptMedia, warnings: [], notes: [] });
+
+  // Changed version: dropped with a note, even with the same task definition.
+  const droppedVehicle = runVehicle(keptVehicle, TD41, "bbb222");
+  assert.equal(droppedVehicle.vehicle, undefined);
+  assert.match(droppedVehicle.notes[0], /importer version changed .*aaa111 -> bbb222.*sends it in full/);
+  const droppedMedia = runMedia(keptMedia, TD41, "bbb222");
+  assert.equal(droppedMedia.staticMedia, undefined);
+  assert.match(droppedMedia.notes[0], /importer version changed .*aaa111 -> bbb222.*sends them in full/);
+
+  // A version missing on either side: the task definition rule as before.
+  for (const [previous, version] of [[vehicle({ taskDefinition: TD41 }), "bbb222"], [keptVehicle, null]] as const) {
+    assert.equal(runVehicle(previous, TD42, version).vehicle, undefined);
+    assert.match(runVehicle(previous, TD42, version).notes[0], /task definition changed/);
+  }
+  for (const [previous, version] of [[media({ taskDefinition: TD41 }), "bbb222"], [keptMedia, null]] as const) {
+    assert.equal(runMedia(previous, TD42, version).staticMedia, undefined);
+    assert.match(runMedia(previous, TD42, version).notes[0], /task definition changed/);
+  }
+  assert.deepEqual(runVehicle(keptVehicle, TD41, null).vehicle, keptVehicle);
+
+  // A kept entry without a version adopts this run's; a sent entry records it.
+  assert.deepEqual(runVehicle(vehicle({ taskDefinition: TD41 }), TD41, "aaa111").vehicle, { ...vehicle({ taskDefinition: TD41 }), importerVersion: "aaa111" });
+  assert.deepEqual(runMedia(media({ taskDefinition: TD41 }), TD41, "aaa111").staticMedia, { ...media({ taskDefinition: TD41 }), importerVersion: "aaa111" });
+  const sentVehicle = nextVehicleState({
+    exported: { digest: OTHER_DIGEST, specs: 1, images: 2, sent: true },
+    totals: { vehicleSpecs: 1, vehicleImages: 2, skippedVehicleSpecs: 0, skippedVehicleImages: 0 }, taskDefinition: TD42, importerVersion: "aaa111", now,
+  });
+  assert.equal(sentVehicle.vehicle?.importerVersion, "aaa111");
+  const sentMedia = nextStaticMediaState({ exported: { digest: OTHER_DIGEST, images: 585, logos: 65, sent: true }, totals: { categoryImages: 585, logos: 65 }, taskDefinition: null, importerVersion: "aaa111", now });
+  assert.equal(sentMedia.staticMedia?.importerVersion, "aaa111");
+});
+
+test("importerVersion reads BUILD_VERSION and treats an unset or development image as unknown", () => {
+  assert.equal(importerVersion({ BUILD_VERSION: " 0123456789ab " }), "0123456789ab");
+  for (const value of [undefined, "", "development"]) assert.equal(importerVersion({ BUILD_VERSION: value }), null);
 });
