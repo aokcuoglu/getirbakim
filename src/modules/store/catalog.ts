@@ -11,8 +11,9 @@ import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore, storedLinks } from "./listing-cache-store";
-import { buildPriceOrder, filteredPriceOrderEnabled, filteredPriceOrderMinIds, priceOrderEnabled, priceOrderHeadStore, priceOrderInUse, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
+import { buildPriceOrder, failedBuildBackoffMs, filteredPriceOrderEnabled, filteredTimeoutBackoffMs, filteredPriceOrderMinIds, priceOrderEnabled, priceOrderHeadStore, priceOrderInUse, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, priceOrderTextSql, priceOrderWorkMem, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
+import { idCount, packIds, SearchOrderBuildError, searchPriceOrderEnabled, searchPriceOrderMaxIds, unpackIds, type SearchPriceOrder } from "./search-price-order";
 import { defaultListingLimitMs, listingStatementTimeoutMs, searchFailureHoldMs, suggestStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
@@ -986,7 +987,7 @@ function lazyFilter(query:CatalogQuery,context:CatalogContext){
  let filter:ReturnType<typeof catalogFilter>|undefined;
  return ()=>filter??=catalogFilter(query,context);
 }
-/** Cache key of everything that narrows the listing except search, which goes uncached. */
+/** Cache key of everything that narrows the listing except the search, which the callers add (a plain search's and a price-sorted search's caches key it). */
 function filterKey(query:CatalogQuery,context:CatalogContext){
  return JSON.stringify([query.category,query.make,query.model,query.manufacturer,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
 }
@@ -1084,6 +1085,49 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
  return {ids:summary.ids.slice(0,cachedPages*catalogPageSize),total:summary.ids.length,brands:summary.brands,attributes,
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
 },{epoch:searchEpoch(raw,mode)});
+// A price-sorted search keeps its whole priced order in memory (#1425, search-price-order.ts): every page slices it and reads
+// its cards live, instead of the hit read, a live count and the priced page per request. The key is the search, its mode, the
+// filters and the sort; the epoch is the fits value when the search reads vehicle fits (a make, model, garage vehicle filter
+// or a search that may name a vehicle) and the listing epoch otherwise. Waits, fallbacks and budget as the other search
+// caches (boundedWait, weight in ids). A failed order statement throws SearchOrderBuildError: the page reads that request
+// live (the path without this cache), and the key is held for ten minutes, an hour after a statement timeout (#1390).
+// A held key bypasses the cache: searchPriceOrder checks the holds before it, so every request in the hold reads live, even
+// one whose key has an earlier entry (a failed epoch reload or TTL refresh would otherwise put that entry back and keep
+// serving an order older than the edit), and calls no loader, so staleCache logs nothing per request. The request whose
+// load fails may still be served the earlier entry. After the hold the next request goes through the cache again (the
+// earlier entry may be served within the bounded wait while it reloads). A first load can pay the order's build (30 s
+// limit) and then the live page (55 s limit) when the build fails; searches are capped at maxSearchHits, so that is unlikely.
+const cachedSearchOrders=staleCache<SearchPriceOrder>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:order=>order.total>0,
+ weigh:order=>Math.max(1,order.total),maxWeight:searchPriceOrderMaxIds()});
+const failedSearchOrders=failureHold(()=>failedBuildBackoffMs,300,()=>Date.now()),timedOutSearchOrders=failureHold(()=>filteredTimeoutBackoffMs,300,()=>Date.now());
+/** The cached order of a price-sorted search, or null when its key is held or its build failed (the caller reads live); other failures reject. */
+async function searchPriceOrder(query:CatalogQuery,context:CatalogContext):Promise<SearchPriceOrder|null>{
+ const raw=query.q!,mode=query.searchBy==="code"?"code":"all",key=`${apiSearchKey(raw,mode)}|${filterKey(query,context)}|${query.sort}`;
+ if(timedOutSearchOrders.failure(key)||failedSearchOrders.failure(key))return null;
+ try{
+  return await cachedSearchOrders(key,async()=>{
+   const filter=await catalogFilter(query,context),{search}=filter;
+   const notes={correctedQuery:search?.correctedQuery,vehicle:search?.vehicle,tooShort:search?.tooShort};
+   const empty={packed:Buffer.alloc(0),total:0,...notes};
+   if(!search?.ids.length)return empty;
+   // Over two or more id sets the order reads the listing's ids (listedIds, #1345), as the live page does.
+   const scope=filter.idSets>=2?(await listedIds(filter,key)).scope:{where:filter.where,values:filter.values,workMem:filter.workMem};
+   if(!scope)return empty;
+   try{
+    const row=(await boundedQuery<{ids:string}>(`catalog.searchPriceOrder ${key}`,priceOrderTextSql(pricedRowsSql(scope.where),listingOrder(query)),scope.values,30_000,{workMem:priceOrderWorkMem})).rows[0];
+    const packed=packIds(row.ids);
+    return {packed,total:idCount(packed),...notes};
+   }catch(error){
+    (isStatementTimeout(error)?timedOutSearchOrders:failedSearchOrders).hold(key,new SearchOrderBuildError(`search price order failed for ${key}`,error));
+    console.error(`Search price order: build failed; reading live (${key})`,error instanceof Error?error.message:error);
+    throw new SearchOrderBuildError(`search price order failed for ${key}`,error);
+   }
+  },{epoch:fitScoped(query)?fitsEpoch:searchEpoch(raw,mode)});
+ }catch(error){
+  if(error instanceof SearchOrderBuildError)return null;
+  throw error;
+ }
+}
 /** How deep API searches read the ranking (#1093): exact-number filters and fit-first ordering work on these ids. */
 export const rankedSearchDepth=200;
 const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:ids=>ids.length>0});
@@ -1171,7 +1215,7 @@ export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalo
 // root category's 149k rows: 1.97 s → 2.5 s; the gain is smallest near 57k), so those keep the one statement, and so do
 // listings with fewer than two id sets, whose plan was right (priced read of 480 rows: manufacturer page 0.34 s → 0.44 s,
 // model page 0.19 s → 0.29 s, category + brand 0.48 s → 0.93 s by ids).
-// A price-sorted search is counted live on every page, so over two or more id sets its id read replaces that count
+// A price-sorted search without the cached order (SEARCH_PRICE_ORDER=0, or a failed build, #1425) is counted live on every page, so over two or more id sets its id read replaces that count
 // (listedIds, #1345) and costs nothing extra (page 1: "fren" in yedek-parca 0.85 s → 0.59 s, with VW 2.45 s → 0.22 s,
 // with Front Axle 1.31 s → 0.31 s). A search alone keeps its count and clause: its bound hit ids already give the planner
 // their size ("fren", 50k ids: 0.80 s → 0.81 s by ids). Its ids are capped at maxSearchHits, so a search never exceeds
@@ -1258,6 +1302,17 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const ids=ranked.slice((page-1)*pageSize,page*pageSize);
   const items=await storefrontRowsByIds(ids);
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
+ }
+ // A price-sorted search slices its cached whole order (#1425); a failed build, or SEARCH_PRICE_ORDER=0, reads live below.
+ if(query.q?.trim()&&pricedOrder(query)&&searchPriceOrderEnabled()){
+  const stored=await searchPriceOrder(query,context);
+  if(stored){
+   const pageSize=catalogPageSize,total=stored.total,pages=Math.max(1,Math.ceil(total/pageSize)),take=Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
+   const requested=Number(query.page);
+   const page=Number.isSafeInteger(requested)?Math.min(pages,Math.max(1,requested)):1;
+   const items=await storefrontRowsByIds(unpackIds(stored.packed,(page-1)*pageSize,take));
+   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:stored.correctedQuery,vehicleScope:stored.vehicle,searchTooShort:stored.tooShort};
+  }
  }
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;

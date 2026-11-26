@@ -22,6 +22,8 @@ import { listingCacheEnabled } from "./listing-cache-store";
  * turns them off for five minutes. Errors never reach the page: a failed read or slice reads the page live, and so does a
  * failed build (its 30 s limit included), after which the listing reads live for ten minutes instead of starting another
  * build per request. Errors are logged, each kind at most once a minute.
+ * A search never reads these rows (the key has no query): a price-sorted search keeps its own order in memory
+ * (search-price-order.ts, #1425).
  * Pages 1-20 keep their own 480 ids (catalog.ts). Their cache takes the stored order's first 480 ids instead of pricing the
  * listing again when a memory miss, refresh or epoch reload finds that row newer than their stored page ids
  * (priceOrderHeadStore, #1389): such a load does not price a listing a deep page ordered again, and its pages 20 and 21
@@ -198,6 +200,9 @@ const orderedSql = (pricedSql: string, order: string) => `WITH priced AS MATERIA
 /** The order the build stores, as a plain select (scripts/listing-summary-timings.ts compares it with the live page). */
 export const priceOrderSelectSql = (pricedSql: string, order: string) => `${orderedSql(pricedSql, order)}
  SELECT ids FROM ordered`;
+/** The whole order as one uuid[] text literal (`{a,b}`), for a cache that keeps it in memory: no row per id (search-price-order.ts, #1425). */
+export const priceOrderTextSql = (pricedSql: string, order: string) => `${orderedSql(pricedSql, order)}
+ SELECT ids::text AS ids FROM ordered`;
 /**
  * One statement that orders the listing and stores it under the key hash (`keyParam`) and epoch (`epochParam`), when it
  * holds 1 to `maxParam` ids; a row of a newer epoch is kept. Returns the stored total and its first `headParam` ids, no
