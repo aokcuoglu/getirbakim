@@ -4,7 +4,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
-import { sharedLoads } from "../src/lib/ttl-cache";
+import { failureHold, sharedLoads } from "../src/lib/ttl-cache";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import type { CatalogQuery } from "../src/modules/store/catalog-query";
 
@@ -87,16 +87,16 @@ async function withEnv<T>(values: Record<string, string | undefined>, run: () =>
   }
 }
 /**
- * `run` with a 200 ms limit on the listing and search reads while another session holds supplier_items in ACCESS EXCLUSIVE
+ * `run` with a 200 ms limit on the listing and search reads while another session holds `table` (supplier_items) in ACCESS EXCLUSIVE
  * mode: every read of the catalog's rows waits for the lock until its statement timeout (57014). Released afterwards, and
  * after 5 s at the latest, so an unbounded read fails the test's timing check instead of waiting for the lock for good.
  */
-async function whileLocked<T>(run: () => Promise<T>) {
+async function whileLocked<T>(run: () => Promise<T>, table = "supplier_items") {
   const locker = await schema.pool.connect();
   let release: ReturnType<typeof setTimeout> | undefined;
   try {
     await locker.query("BEGIN");
-    await locker.query("LOCK TABLE supplier_items IN ACCESS EXCLUSIVE MODE");
+    await locker.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`);
     release = setTimeout(() => void locker.query("ROLLBACK").catch(() => {}), 5_000);
     return await withEnv({ LISTING_STATEMENT_TIMEOUT_MS: "200" }, run);
   } finally {
@@ -575,7 +575,7 @@ test("an aborted type-ahead request cancels its live read on the server within 1
 test("the type-ahead's reads stop at SUGGEST_STATEMENT_TIMEOUT_MS while listing reads keep 55 s; 0 gives the listing limit (#1398)", async t => {
   t.mock.method(console, "error", () => {});
   // The listing limit unset (55 s) under the lock: only the type-ahead's own limit can stop the read before the release.
-  const locked = await whileLocked(() => withEnv({ LISTING_STATEMENT_TIMEOUT_MS: undefined, SUGGEST_STATEMENT_TIMEOUT_MS: "200" }, () => suggest("mahle")));
+  const locked = await whileLocked(() => withEnv({ LISTING_STATEMENT_TIMEOUT_MS: undefined, SUGGEST_STATEMENT_TIMEOUT_MS: "200", SEARCH_FAILURE_HOLD_MS: "0" }, () => suggest("mahle")));
   assert.equal(locked.error?.code, "57014");
   assert.ok(locked.ms < 1_500, `${locked.ms} ms`);
   const limits = async (run: () => Promise<unknown>, env: Record<string, string | undefined>) =>
@@ -590,4 +590,126 @@ test("the type-ahead's reads stop at SUGGEST_STATEMENT_TIMEOUT_MS while listing 
     ["SET LOCAL statement_timeout = 40000"]);
   assert.deepEqual(await limits(() => catalog.suggestProducts("parc", "all"), { SUGGEST_STATEMENT_TIMEOUT_MS: "0", LISTING_STATEMENT_TIMEOUT_MS: "0" }), [],
     "both off: plain statements");
+  // A cold zero-hit search also reads the spell-correction: under the type-ahead's limit alone, never the listing's (#1416).
+  assert.deepEqual(await limits(() => catalog.suggestProducts("zzzqxa", "all"), { SUGGEST_STATEMENT_TIMEOUT_MS: "1500", LISTING_STATEMENT_TIMEOUT_MS: undefined }),
+    ["SET LOCAL statement_timeout = 1500"]);
+  // A two-word zero-hit search reads the vehicle reading and resolvePart's corrections too: the type-ahead's limit only.
+  assert.deepEqual(await limits(() => catalog.suggestProducts("zzzqxc zzzqxd", "all"), { SUGGEST_STATEMENT_TIMEOUT_MS: "1500", LISTING_STATEMENT_TIMEOUT_MS: undefined }),
+    ["SET LOCAL statement_timeout = 1500"]);
+  assert.deepEqual(await limits(() => catalog.suggestProducts("zzzqxb", "all"), { SUGGEST_STATEMENT_TIMEOUT_MS: "0", LISTING_STATEMENT_TIMEOUT_MS: "0" }), [],
+    "both off: the correction is a plain statement too");
+});
+
+test("failureHold keeps a failure for holdMs, drops it after, holds nothing at 0 and evicts the oldest past maxEntries (#1416)", () => {
+  let hold = 100, clock = 1_000;
+  const held = failureHold(() => hold, 2, () => clock), boom = new Error("boom");
+  held.hold("a", boom);
+  assert.equal(held.failure("a")?.error, boom);
+  assert.equal(held.failure("b"), undefined);
+  clock += 99;
+  assert.equal(held.failure("a")?.error, boom);
+  clock += 1;
+  assert.equal(held.failure("a"), undefined, "expired at holdMs");
+  hold = 0;
+  held.hold("c", boom);
+  assert.equal(held.failure("c"), undefined, "0 holds nothing");
+  hold = 100;
+  held.hold("d", boom); held.hold("e", boom); held.hold("f", boom);
+  assert.equal(held.failure("d"), undefined, "the oldest left");
+  assert.equal(held.failure("e")?.error, boom);
+  assert.equal(held.failure("f")?.error, boom);
+});
+
+/** The hit-set statements (searchHitIdsSql) among the statements `run` sends. */
+const hitReads = async (run: () => Promise<unknown>) => (await sentTexts(run)).filter(text => text.includes("WITH main AS MATERIALIZED")).length;
+const holdEnv = { SUGGEST_STATEMENT_TIMEOUT_MS: "200", SEARCH_FAILURE_HOLD_MS: "400" };
+
+test("a type-ahead key whose hit read timed out is held: the same error at once, no statement; other keys load; it loads after the hold (#1416)", async t => {
+  t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  const first = await withEnv(holdEnv, () => whileLocked(() => suggest("bosc")));
+  assert.equal(first.error?.code, "57014");
+  assert.ok(first.ms < 1_500, `${first.ms} ms`);
+  let held: Awaited<ReturnType<typeof suggest>> | undefined;
+  const reads = await hitReads(async () => { held = await withEnv(holdEnv, () => suggest("bosc")); });
+  assert.equal(held?.error?.code, "57014", "the held failure is the original error");
+  assert.ok(held.ms < 100, `${held.ms} ms`);
+  assert.equal(reads, 0, "no hit statement");
+  const other = await withEnv(holdEnv, () => suggest("mahl"));
+  assert.ok((other.value?.products.length ?? 0) > 0, JSON.stringify(other));
+  await sleep(450);
+  const after = await withEnv(holdEnv, () => suggest("bosc"));
+  assert.ok((after.value?.products.length ?? 0) > 0, JSON.stringify(after));
+});
+
+test("a held key with an earlier value serves it without a hit statement; after the hold the read is sent again (#1416)", async t => {
+  t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  assert.ok(((await withEnv(holdEnv, () => suggest("mahle"))).value?.products.length ?? 0) > 0);
+  await invalidateListings();
+  await withEnv(holdEnv, () => whileLocked(() => suggest("mahle")));
+  await until(blockedReads, n => n === 0, 1_000);
+  let within: Awaited<ReturnType<typeof suggest>> | undefined;
+  const reads = await hitReads(async () => { within = await withEnv(holdEnv, () => suggest("mahle")); });
+  assert.ok((within?.value?.products.length ?? 0) > 0, JSON.stringify(within));
+  assert.equal(reads, 0, "no hit statement within the hold");
+  await sleep(450);
+  assert.ok(await hitReads(() => withEnv(holdEnv, () => suggest("mahle"))) >= 1, "the hit read goes out again after the hold");
+});
+
+test("SEARCH_FAILURE_HOLD_MS=0 holds nothing: the next call reads again (#1416)", async t => {
+  t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  const env = { SUGGEST_STATEMENT_TIMEOUT_MS: "200", SEARCH_FAILURE_HOLD_MS: "0" };
+  assert.equal((await withEnv(env, () => whileLocked(() => suggest("mahlb")))).error?.code, "57014");
+  const second = await hitReads(() => withEnv(env, () => suggest("mahlb")));
+  assert.ok(second >= 1, "the hit read goes out again");
+});
+
+test("a spell-correction that times out answers as typed, pauses its scope, and works again after the hold (#1416)", async t => {
+  const logged = t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  await schema.pool.query("SELECT refresh_search_vocabulary()");
+  const env = { ...holdEnv, LISTING_STATEMENT_TIMEOUT_MS: undefined };
+  const failed = await withEnv(env, () => whileLocked(() => suggest("mahlee"), "search_vocabulary"));
+  assert.ok(failed.ms < 1_500, `${failed.ms} ms`);
+  assert.deepEqual(failed.value?.products, [], JSON.stringify(failed));
+  assert.equal(failed.value?.correctedQuery, undefined);
+  assert.ok(logLines(logged).some(line => line.startsWith("Search correction failed")), logLines(logged).join("\n"));
+  const texts = await sentTexts(() => withEnv(env, () => suggest("mahlea")));
+  assert.ok(!texts.some(text => text.includes("search_vocabulary")), "the paused scope sends no statement");
+  await sleep(450);
+  const fixed = await withEnv(env, () => suggest("mahlle"));
+  assert.equal(fixed.value?.correctedQuery, "mahle", JSON.stringify(fixed));
+  // The listing path: a failed correction renders an empty result instead of throwing.
+  await sleep(450);
+  const page = await withEnv({ SEARCH_FAILURE_HOLD_MS: "400" }, () => whileLocked(() => timed(() => inRequest(() => catalog.browseProducts({ q: "mahleee" }))), "search_vocabulary"));
+  assert.equal(page.error, undefined, JSON.stringify(page.error));
+  assert.equal(page.value?.total, 0);
+});
+
+test("the suggest route answers a timeout 503 with Retry-After and no-store, any other error 500 (#1416)", async t => {
+  const warned = t.mock.method(console, "warn", () => {});
+  t.mock.method(console, "error", () => {});
+  const { GET } = await import("../src/app/api/search/suggest/route");
+  const call = (q: string) => inRequest(() => GET(new Request(`http://localhost/api/search/suggest?q=${q}`)));
+  const timedOut = await withEnv(holdEnv, () => whileLocked(() => call("boscb")));
+  assert.equal(timedOut.status, 503);
+  assert.equal(timedOut.headers.get("Retry-After"), "30");
+  assert.equal(timedOut.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(await timedOut.json(), { error: "Öneriler şu anda yüklenemiyor." });
+  assert.ok(logLines(warned).includes("Search suggestions timed out"), logLines(warned).join("\n"));
+  const heldAgain = await withEnv(holdEnv, () => call("boscb"));
+  assert.equal(heldAgain.status, 503, "a held key");
+  const original = pg.Client.prototype.query;
+  pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+    const config = args[0];
+    if ((typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "").includes("WITH main AS MATERIALIZED")) return Promise.reject(new Error("boom"));
+    return (original as (...rest: unknown[]) => unknown).apply(this, args);
+  } as typeof original;
+  try {
+    assert.equal((await withEnv(holdEnv, () => call("boscc"))).status, 500);
+  } finally {
+    pg.Client.prototype.query = original;
+  }
 });

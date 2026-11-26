@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
+import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
 import { parseSearchQuery, setCustomSynonymGroups } from "../src/modules/search/query";
 
@@ -74,6 +76,62 @@ test("an admin group reaches the parser after the edit, and leaves it when delet
   assert.ok(!alternatives().includes("zzqbar"));
   // Built-in groups stay.
   assert.ok(parseSearchQuery("eksoz").terms[0].alternatives.some(a => a.value === "egzoz"));
+});
+
+test("a synonym load that times out keeps the last groups, is not retried within the hold, and loads after it (#1416)", async t => {
+  const logged = t.mock.method(console, "error", () => {});
+  const alternatives = () => parseSearchQuery("zzqlock").terms[0].alternatives.map(a => a.value);
+  await custom.ensureCustomSynonyms();
+  await analytics.addCustomSynonymGroup(["zzqlock", "zzqkept"], adminId);
+  await epoch.invalidateListings();
+  await custom.ensureCustomSynonyms();
+  assert.ok(alternatives().includes("zzqkept"));
+  const saved = { SUGGEST_STATEMENT_TIMEOUT_MS: process.env.SUGGEST_STATEMENT_TIMEOUT_MS, SEARCH_FAILURE_HOLD_MS: process.env.SEARCH_FAILURE_HOLD_MS, LISTING_STATEMENT_TIMEOUT_MS: process.env.LISTING_STATEMENT_TIMEOUT_MS };
+  const sent = async (run: () => Promise<unknown>) => {
+    const original = pg.Client.prototype.query;
+    const texts: string[] = [];
+    pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+      const config = args[0];
+      texts.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
+      return (original as (...rest: unknown[]) => unknown).apply(this, args);
+    } as typeof original;
+    try { await run(); } finally { pg.Client.prototype.query = original; }
+    return texts;
+  };
+  try {
+    Object.assign(process.env, { SUGGEST_STATEMENT_TIMEOUT_MS: "200", SEARCH_FAILURE_HOLD_MS: "400" });
+    const locker = await schema.pool.connect();
+    try {
+      await analytics.addCustomSynonymGroup(["zzqlock", "zzqnew"], adminId);
+      await locker.query("BEGIN");
+      await locker.query("LOCK TABLE search_synonyms IN ACCESS EXCLUSIVE MODE");
+      await epoch.invalidateListings();
+      const started = Date.now();
+      await custom.ensureCustomSynonyms();
+      assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms`);
+      assert.ok(alternatives().includes("zzqkept") && !alternatives().includes("zzqnew"), "the last groups stay");
+      assert.ok(logged.mock.calls.some(call => String(call.arguments[0]).startsWith("Custom synonyms: load failed")));
+    } finally {
+      await locker.query("ROLLBACK").catch(() => {});
+      locker.release();
+    }
+    const texts = await sent(() => custom.ensureCustomSynonyms());
+    assert.ok(!texts.some(text => text.includes("search_synonyms")), "no statement within the hold");
+    assert.ok(!alternatives().includes("zzqnew"));
+    await sleep(450);
+    await custom.ensureCustomSynonyms();
+    assert.ok(alternatives().includes("zzqnew"), "loaded after the hold");
+    // Both limits off (the rollback): a plain statement, not statement_timeout = 1.
+    Object.assign(process.env, { SUGGEST_STATEMENT_TIMEOUT_MS: "0", LISTING_STATEMENT_TIMEOUT_MS: "0" });
+    await epoch.invalidateListings();
+    const plain = await sent(() => custom.ensureCustomSynonyms());
+    assert.ok(plain.some(text => text.includes("search_synonyms")), "the groups are loaded");
+    assert.ok(!plain.some(text => text.includes("statement_timeout")), "no limit is set");
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
 });
 
 // AI suggestions (#834) against a local stub of both providers: no request leaves the machine.
