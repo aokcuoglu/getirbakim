@@ -2,16 +2,18 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { after, before, test } from "node:test";
 import { promisify } from "node:util";
 import type { Pool } from "pg";
+import type { z } from "zod";
+import { enrichmentDataSchema } from "../src/modules/store/enrichment-contract";
 import { isolatedSchema } from "./isolated-schema";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import { REMOVED_JOB_ERROR } from "./storefront-bundle-tombstones";
-import { buildInboundReport, type PartReport } from "./storefront-sync-state";
+import { buildInboundReport, checkInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
 
 // The storefront sync end to end (#1372): export-storefront-bundle.ts -> splitStorefrontBundle -> import-storefront-bundle.ts, each
 // a real child process, between two isolated copies of the schema (a local database as source, production as target) and an
@@ -19,7 +21,9 @@ import { buildInboundReport, type PartReport } from "./storefront-sync-state";
 // reaches the target unchanged, both when the row is new on the target (run 1) and when it already exists there and changes
 // (run 2 changes every carried non-key column of one imported row per table, run 3 the vehicle data), so a column missing from an
 // importer's INSERT or from its ON CONFLICT DO UPDATE list fails. Whatever may legitimately differ is listed in LOCAL_ONLY, with its
-// reason; anything else that differs fails. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
+// reason; anything else that differs fails. The inbound tests (#1384) then run import-storefront-inbound.ts, the operations-task entry
+// point, on a third isolated schema: the same parts through a listing-capable stub, all dry runs, apply, fitment rebuild, queue drain,
+// report.json, and a part that fails its dry run must write nothing. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
 // left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or one that only ever holds
 // its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted on both sides.
 const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
@@ -101,8 +105,11 @@ async function compareRows(table: CarriedTable, db: Queryable, excludeCodes: str
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// An S3 stub: path-style GET/PUT of whole objects on 127.0.0.1, nothing else. Anything it does not understand answers 501 and is recorded.
+// An S3 stub: path-style GET/PUT of whole objects and ListObjectsV2 (prefix, delimiter, continuation-token) on 127.0.0.1, nothing else. Anything it does not understand answers 501 and is recorded.
 type Stub = Awaited<ReturnType<typeof startS3Stub>>;
+// A small page size makes the importer's continuation loop run.
+const LIST_PAGE = 3;
+const xmlEscape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 async function startS3Stub() {
   const objects = new Map<string, { bytes: Buffer; contentType: string }>();
   const state = { puts: [] as string[], unsupported: [] as string[] };
@@ -115,6 +122,32 @@ async function startS3Stub() {
       if (req.headers["content-encoding"]?.includes("aws-chunked") || String(req.headers["x-amz-content-sha256"] ?? "").startsWith("STREAMING-")) {
         state.unsupported.push(`${req.method} ${path} (aws-chunked)`);
         return fail(501, "NotImplemented");
+      }
+      if (req.method === "GET" && !path.includes("/")) {
+        const query = new URL(req.url ?? "", "http://stub").searchParams;
+        if (query.get("list-type") !== "2" || [...query.keys()].some(name => !["list-type", "prefix", "delimiter", "continuation-token"].includes(name))) {
+          state.unsupported.push(`GET ${path}?${query.toString()}`);
+          return fail(501, "NotImplemented");
+        }
+        const prefix = query.get("prefix") ?? "", delimiter = query.get("delimiter");
+        const entries = new Map<string, { key: string; size: number } | { prefix: string }>();
+        for (const [full, object] of objects) {
+          if (!full.startsWith(`${path}/${prefix}`)) continue;
+          const key = full.slice(path.length + 1), rest = key.slice(prefix.length);
+          const cut = delimiter ? rest.indexOf(delimiter) : -1;
+          if (cut >= 0) entries.set(`${prefix}${rest.slice(0, cut + delimiter!.length)}`, { prefix: `${prefix}${rest.slice(0, cut + delimiter!.length)}` });
+          else entries.set(key, { key, size: object.bytes.length });
+        }
+        const after = query.get("continuation-token");
+        const sorted = [...entries.keys()].sort().filter(name => after === null || name > after);
+        const page = sorted.slice(0, LIST_PAGE), truncated = sorted.length > page.length;
+        const body = page.map(name => {
+          const entry = entries.get(name)!;
+          return "key" in entry ? `<Contents><Key>${xmlEscape(entry.key)}</Key><Size>${entry.size}</Size></Contents>` : `<CommonPrefixes><Prefix>${xmlEscape(entry.prefix)}</Prefix></CommonPrefixes>`;
+        }).join("");
+        res.writeHead(200, { "Content-Type": "application/xml" });
+        return void res.end(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Name>${path}</Name><Prefix>${xmlEscape(prefix)}</Prefix><KeyCount>${page.length}</KeyCount><MaxKeys>${LIST_PAGE}</MaxKeys>`
+          + `<IsTruncated>${truncated}</IsTruncated>${truncated ? `<NextContinuationToken>${xmlEscape(page[page.length - 1])}</NextContinuationToken>` : ""}${body}</ListBucketResult>`);
       }
       if (req.method === "GET") {
         const object = objects.get(path);
@@ -144,28 +177,38 @@ async function startS3Stub() {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 type Schema = Awaited<ReturnType<typeof isolatedSchema>>;
-let source: Schema, target: Schema;
-let sourceUrl = "", targetUrl = "";
+let source: Schema, target: Schema, inbound: Schema;
+let sourceUrl = "", targetUrl = "", inboundUrl = "";
 let stub: Stub;
 let dir = "";
 const srcBucket = `e2e-src-${randomBytes(4).toString("hex")}`;
 const dstBucket = `e2e-dst-${randomBytes(4).toString("hex")}`;
+const inbBucket = `e2e-inb-${randomBytes(4).toString("hex")}`;
+const inboundBucket = `e2e-inbound-${randomBytes(4).toString("hex")}`;
+
+type Side = "source" | "target" | "inbound";
+function sideOf(side: Side) {
+  if (side === "source") return { schema: source, url: sourceUrl, bucket: undefined };
+  if (side === "target") return { schema: target, url: targetUrl, bucket: dstBucket };
+  return { schema: inbound, url: inboundUrl, bucket: inbBucket };
+}
 
 /** Runs a bundle script as a child process against one schema and the stub; every spawn is checked first so it can reach nothing else. */
-async function run(script: string, args: string[], side: "source" | "target") {
-  const schema = side === "source" ? source : target;
+async function run(script: string, args: string[], side: Side, options: { env?: Record<string, string>; timeoutMs?: number } = {}) {
+  const { schema, url, bucket } = sideOf(side);
   const env = { ...process.env };
   for (const name of Object.keys(env)) if (name.startsWith("AWS_") || name.startsWith("S3_")) delete env[name];
   Object.assign(env, {
-    DATABASE_URL: side === "source" ? sourceUrl : targetUrl, S3_ENDPOINT: stub.url, S3_REGION: "us-east-1", S3_ACCESS_KEY_ID: "test", S3_SECRET_ACCESS_KEY: "test-secret",
+    DATABASE_URL: url, S3_ENDPOINT: stub.url, S3_REGION: "us-east-1", S3_ACCESS_KEY_ID: "test", S3_SECRET_ACCESS_KEY: "test-secret",
     AWS_REQUEST_CHECKSUM_CALCULATION: "WHEN_REQUIRED", AWS_RESPONSE_CHECKSUM_VALIDATION: "WHEN_REQUIRED",
   });
-  if (side === "target") env.S3_BUCKET = dstBucket;
+  if (bucket) env.S3_BUCKET = bucket;
+  Object.assign(env, options.env);
   assert.match(env.S3_ENDPOINT!, /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.equal(new URL(env.DATABASE_URL!).searchParams.get("options"), `-c search_path=${schema.name},public`);
   assert.ok(!args.some(arg => arg.startsWith("--env-file") || arg === "--prune"));
   try {
-    return (await execFileAsync(process.execPath, ["--conditions=react-server", "--import", "tsx", `scripts/${script}`, ...args], { cwd: repoRoot, env, encoding: "utf8", maxBuffer: 1 << 26, timeout: 60_000, killSignal: "SIGKILL" })).stdout;
+    return (await execFileAsync(process.execPath, ["--conditions=react-server", "--import", "tsx", `scripts/${script}`, ...args], { cwd: repoRoot, env, encoding: "utf8", maxBuffer: 1 << 26, timeout: options.timeoutMs ?? 60_000, killSignal: "SIGKILL" })).stdout;
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; message: string };
     throw new Error(`${script} failed: ${failure.message}\n${failure.stdout ?? ""}\n${failure.stderr ?? ""}`);
@@ -221,10 +264,13 @@ async function seedSource(pool: Pool) {
     ('otoparcasan',9,NULL,'Yag','yag','{9}','https://example.com/c9','{"id":9}',$1)`, [day(4)]);
   await pool.query(`INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES('trodo',2,'tr','Filtre','filtre'),('trodo',2,'en','Filter','filter')`);
   await pool.query("INSERT INTO source_category_images(source,category_id,media_id,width,height) VALUES('trodo',2,$1,320,240)", [mediaId.mCat]);
+  // A payload the importers' enrichmentDataSchema accepts (the fitment rebuild parses it); only E2E-A carries a vehicle, type 101 (on every target).
+  const vehicles = (code: Code): z.input<typeof enrichmentDataSchema>["vehicles"] => code === "E2E-A"
+    ? [{ model: "FOCUS", engineAndCodes: "1.6", fuel: "Petrol", kw: 77, ps: 105, cc: 1596, from: "01/2004", to: "12/2010", typeId: 101 }] : [];
   const enrichment = (code: Code, image: string | null, basis: object, n: number) => pool.query(
     `INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload,imported_at,match_basis)
      VALUES($1,$2,$3,$4,'trodo',$5,$6,$7,$8,$9,$10)`,
-    [sourceId[code], `SC-${code}`, `BRAND-${n}`, `https://example.com/p/${code}`, `MAN-${n}`, `PN-${n}`, image, { title: code, specs: [n] }, day(n), JSON.stringify(basis)]);
+    [sourceId[code], `SC-${code}`, `BRAND-${n}`, `https://example.com/p/${code}`, `MAN-${n}`, `PN-${n}`, image, { displayName: code, specifications: [["n", String(n)]], oemNumbers: {}, crossReferences: {}, vehicles: vehicles(code) } satisfies z.input<typeof enrichmentDataSchema>, day(n), JSON.stringify(basis)]);
   await enrichment("E2E-A", mediaId.mA, { type: "oem", oem: "123" }, 5);
   await enrichment("E2E-B", mediaId.mA, { type: "cross", oem: "456" }, 6);
   await enrichment("E2E-C", null, { type: "exact_part" }, 7);
@@ -262,6 +308,34 @@ async function seedTarget(pool: Pool) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
+async function tableRows(pool: Queryable, excludeCodes: string[], afterUpdate = false) {
+  const rows = {} as Record<CarriedTable, Record<string, unknown>[]>;
+  for (const table of TABLES) rows[table] = await compareRows(table, pool, excludeCodes, afterUpdate);
+  return rows;
+}
+
+/** Every row of the carried tables and of the derived ones the inbound import writes, as JSON in a stable order, ids included. */
+async function rawSnapshot(pool: Queryable) {
+  const snapshot: Record<string, unknown> = {};
+  for (const table of [...TABLES, "supplier_items", "product_vehicle_fitments", "product_enrichment_shared_queue", "enrichment_product_state_queue"]) {
+    snapshot[table] = (await pool.query<{ rows: unknown }>(`SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) AS rows FROM ${table} t`)).rows[0].rows;
+  }
+  return snapshot;
+}
+
+/** Uploads a local directory to the stub under bucket/keyPrefix, keys with forward slashes. */
+async function uploadDirToStub(localDir: string, bucket: string, keyPrefix: string) {
+  for (const entry of await readdir(localDir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const file = join(entry.parentPath, entry.name);
+    stub.objects.set(`${bucket}/${keyPrefix}/${relative(localDir, file).split(sep).join("/")}`, { bytes: await readFile(file), contentType: "application/octet-stream" });
+  }
+}
+/** Uploads split parts as <prefix>/<part dir name>/ into the inbound bucket. */
+async function uploadParts(parts: string[], prefix: string) {
+  for (const part of parts) await uploadDirToStub(part, inboundBucket, `${prefix}/${basename(part)}`);
+}
+
 async function compareAll(excludeCodes: string[] = [], afterUpdate = false) {
   for (const table of TABLES) {
     const [fromSource, fromTarget] = [await compareRows(table, source.pool, excludeCodes, afterUpdate), await compareRows(table, target.pool, excludeCodes, afterUpdate)];
@@ -301,18 +375,27 @@ before(async () => {
   sourceUrl = process.env.DATABASE_URL!;
   target = await isolatedSchema("storefront_e2e_dst");
   targetUrl = process.env.DATABASE_URL!;
+  inbound = await isolatedSchema("storefront_e2e_inb");
+  inboundUrl = process.env.DATABASE_URL!;
   await seedSource(source.pool);
   await seedTarget(target.pool);
+  await seedTarget(inbound.pool);
 });
+// The schemas restore DATABASE_URL in nested order, so they are dropped innermost first.
 after(async () => {
-  try { await target?.drop(); } finally {
-    try { await source?.drop(); } finally {
-      try { await stub?.close(); } finally { if (dir) await rm(dir, { recursive: true, force: true }); }
+  try { await inbound?.drop(); } finally {
+    try { await target?.drop(); } finally {
+      try { await source?.drop(); } finally {
+        try { await stub?.close(); } finally { if (dir) await rm(dir, { recursive: true, force: true }); }
+      }
     }
   }
 });
 
-const state: { digest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[] } = { digest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [] };
+const state: {
+  digest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[];
+  full1: string; parts1: string[]; run1Reports: PartReport[]; run1Target: Record<CarriedTable, Record<string, unknown>[]> | null; run1SharedQueue: number;
+} = { digest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], run1Reports: [], run1Target: null, run1SharedQueue: 0 };
 const vehicleRows = async (pool: Pool) => [...(await compareRows("vehicle_type_specs", pool, [])), ...(await compareRows("vehicle_type_images", pool, []))];
 
 async function importParts(parts: string[]) {
@@ -365,6 +448,12 @@ test("run 1: a full export, split, applied part by part, leaves the target equal
 
   await assertColumnCoverage();
   await compareAll(["E2E-MISSING"]);
+  state.full1 = full;
+  state.parts1 = parts;
+  state.run1Reports = reports;
+  state.run1Target = await tableRows(target.pool, ["E2E-MISSING"]);
+  state.run1SharedQueue = (await target.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_enrichment_shared_queue")).rows[0].n;
+  assert.ok(state.run1SharedQueue > 0, "the per-part import queued nothing for the derived tables");
   assert.equal((await target.pool.query("SELECT 1 FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE s.code='E2E-PENDING'")).rowCount, 0);
   const exported = await readLines<{ bucket: string; object_key: string }>(join(full, "media.ndjson"));
   assert.equal(exported.length, 5);
@@ -391,7 +480,7 @@ test("run 2: a delta with a deletion and a retry applies, resets the removed job
   // keys (product_source_categories) change by replacing a row; vehicle data changes in run 3, which is where it travels.
   const a = sourceId["E2E-A"];
   await source.pool.query(`UPDATE product_enrichments SET supplier_code='SC-A2',supplier_brand='BRAND-A2',source_url='https://example.com/p/A2',source_method='otoparcasan',
-    manufacturer='MAN-A2',manufacturer_part_number='PN-A2',image_id=$2,payload='{"title":"changed"}',imported_at=date_trunc('milliseconds',now()),match_basis='{"type":"cross","oem":"999"}'
+    manufacturer='MAN-A2',manufacturer_part_number='PN-A2',image_id=$2,payload='{"specifications":[["changed","1"]],"oemNumbers":{},"crossReferences":{},"vehicles":[]}',imported_at=date_trunc('milliseconds',now()),match_basis='{"type":"cross","oem":"999"}'
     WHERE supplier_item_id=$1`, [a, mediaId.mGone]);
   await source.pool.query(`UPDATE product_enrichment_jobs SET status='partial',supplier_code='SC-A2',supplier_brand='BRAND-A2',oem='OEM-A2',candidate_url='https://example.com/cand/A2',
     last_attempt_at=$2 WHERE supplier_item_id=$1`, [a, day(28)]);
@@ -451,4 +540,72 @@ test("run 3: changed vehicle data is sent again whatever digest the target confi
   const { totals } = buildInboundReport(await importParts(parts));
   assert.deepEqual([totals.vehicleSpecs, totals.vehicleImages, totals.skippedVehicleSpecs], [2, 1, 1]);
   await compareAll([], true);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// import-storefront-inbound.ts (#1384): the operations-task entry point, on its own schema and bucket pair.
+const inboundRun = (prefix: string) => run("import-storefront-inbound.ts", [prefix], "inbound", { env: { INBOUND_BUCKET: inboundBucket }, timeoutMs: 180_000 });
+const countOf = (text: string, needle: string) => text.split(needle).length - 1;
+
+test("inbound: a part that fails its dry run stops the run before anything is applied", { skip }, async () => {
+  assert.ok(state.parts1.length > 1);
+  await uploadParts(state.parts1, "storefront/broken");
+  // The last part gets a category image row the importer cannot match: its dry run throws, after the other parts' dry runs passed.
+  const brokenKey = `${inboundBucket}/storefront/broken/${basename(state.parts1[state.parts1.length - 1])}/manifest.json`;
+  const original = stub.objects.get(brokenKey)!;
+  const manifest = JSON.parse(original.bytes.toString("utf8")) as { images?: unknown[] };
+  manifest.images = [...(manifest.images ?? []), { source: "trodo", category_id: 2, media_id: randomUUID(), width: 1, height: 1 }];
+  stub.objects.set(brokenKey, { bytes: Buffer.from(JSON.stringify(manifest)), contentType: original.contentType });
+
+  const before = await rawSnapshot(inbound.pool);
+  const puts = stub.puts.length;
+  await assert.rejects(inboundRun("storefront/broken"), (error: Error) => {
+    assert.match(error.message, /Category image rows mismatch/);
+    assert.match(error.message, /import-storefront-bundle\.ts .* failed with exit code 1/);
+    assert.doesNotMatch(error.message, /APPLIED/);
+    assert.equal(countOf(error.message, "DRY RUN (nothing written)"), state.parts1.length - 1);
+    return true;
+  });
+  assert.deepEqual(await rawSnapshot(inbound.pool), before);
+  assert.equal((await inbound.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_enrichments")).rows[0].n, 0);
+  assert.ok(![...stub.objects.keys()].some(key => key.startsWith(`${inbBucket}/`)), "the failed run wrote to the media bucket");
+  assert.equal(stub.puts.length, puts);
+});
+
+test("inbound: the e2e parts imported by import-storefront-inbound.ts leave the same target and report as the per-part import", { skip }, async () => {
+  assert.ok(state.run1Target);
+  await uploadParts(state.parts1, "storefront/current");
+  const out = await inboundRun("storefront/current");
+
+  const count = state.parts1.length;
+  assert.equal(countOf(out, "DRY RUN (nothing written)"), count);
+  assert.equal(countOf(out, "APPLIED"), count);
+  assert.ok(out.lastIndexOf("DRY RUN (nothing written)") < out.indexOf("APPLIED"), "a dry run came after the first apply");
+
+  const imported = await tableRows(inbound.pool, ["E2E-MISSING"]);
+  for (const table of TABLES) {
+    assert.ok(imported[table].length > 0, `${table} is empty after the inbound import`);
+    assert.deepEqual(imported[table], state.run1Target[table], `${table} differs from the per-part import`);
+  }
+  for (const object of await readLines<{ object_key: string }>(join(state.full1, "media.ndjson"))) {
+    const stored = stub.objects.get(`${inbBucket}/${object.object_key}`);
+    assert.ok(stored, `${object.object_key} is not in the media bucket`);
+    assert.deepEqual(stored.bytes, stub.objects.get(`${srcBucket}/${object.object_key}`)!.bytes);
+  }
+
+  const written = stub.objects.get(`${inbBucket}/${reportKey("storefront/current")}`);
+  assert.ok(written, "report.json was not written");
+  assert.equal(written.contentType, "application/json");
+  const report = JSON.parse(written.bytes.toString("utf8")) as Parameters<typeof checkInboundReport>[0] & object;
+  assert.deepEqual(report, JSON.parse(JSON.stringify({ snapshotAt: state.snapshotAt, ...buildInboundReport(state.run1Reports) })));
+  assert.ok(!("items" in report));
+  checkInboundReport(report, state.snapshotAt);
+
+  const fitments = (await inbound.pool.query("SELECT s.code,f.vehicle_type_id,f.match_status FROM product_vehicle_fitments f JOIN supplier_items s ON s.id=f.supplier_item_id")).rows;
+  assert.deepEqual(fitments, [{ code: "E2E-A", vehicle_type_id: 101, match_status: "matched" }]);
+  assert.match(out, /"mode":"scoped","requested":4/);
+  for (const queue of ["product_enrichment_shared_queue", "enrichment_product_state_queue"]) {
+    assert.equal((await inbound.pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${queue}`)).rows[0].n, 0, `${queue} is not drained`);
+  }
+  assert.match(out, /"mode":"sync"/);
 });
