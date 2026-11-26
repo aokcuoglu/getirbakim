@@ -415,7 +415,10 @@ test("a key that loaded, then failed to reload (epoch bump or TTL), reads live d
         // The request whose reload fails may still get the earlier entry; the hold is set by then.
         await browse(query, {}, proc);
         await until(async () => attempts, found => found >= 1);
-        await sleep(100);
+        // The hold is set just before the build's log line, and staleCache logs the failed reload or refresh after it:
+        // wait for both lines instead of a fixed sleep, so a loaded runner cannot read before the hold is in place.
+        const logs = () => logged.mock.calls.map(call => String(call.arguments[0]));
+        await until(async () => logs(), lines => lines.some(line => line.includes("build failed")) && lines.some(line => /^Stale cache re(load|fresh) failed/.test(line)));
         const errorsAfterFailure = logged.mock.callCount();
         assert.equal(attempts, 1, `${reason}: one failed statement`);
         for (const [page, index] of [["1", 0], ["2", 1], ["1", 0]] as const) {
