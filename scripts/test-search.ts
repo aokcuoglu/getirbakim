@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { db } from "../src/lib/db";
-import { compactSearchCode, exactTsQuery, normalizeSearchText, parseSearchQuery, prefixTsQuery } from "../src/modules/search/query";
+import { compactSearchCode, exactTsQuery, normalizeSearchText, parseSearchQuery, prefixTsQuery, wholeWords } from "../src/modules/search/query";
 import { binder, storedRank, supplierItemMatch } from "../src/modules/search/sql";
 import { searchVehicleCatalog } from "../src/modules/store/vehicle-catalog.server";
-import { browseProducts, suggestProducts } from "../src/modules/store/catalog";
+import { browseProducts, suggestProducts, vehicleFittedIds } from "../src/modules/store/catalog";
 
 // Runs against the shared database: keep the listing caches out of its persisted level (#957).
 process.env.LISTING_CACHE_PERSIST = "0";
@@ -235,14 +235,37 @@ test("product search: Turkish letters, several words, part numbers with any spac
 });
 
 test("product search names a part and a vehicle: parts linked to the vehicle, else every part", async () => {
-  const sample = (await db.query<{ id: string; name: string; model: string }>(`SELECT f.supplier_item_id::text AS id,
+  const candidates = (await db.query<{ id: string; name: string; model: string }>(`SELECT f.supplier_item_id::text AS id,
     i.product_data->>'ac' AS name, split_part(m.name, ' ', 1) AS model FROM product_vehicle_fitments f
     JOIN supplier_items i ON i.id=f.supplier_item_id JOIN vehicle_types v ON v.id=f.vehicle_type_id JOIN vehicle_models m ON m.id=v.model_id
-    WHERE i.product_data->>'ac' ~ '^[A-Z]+ [A-Z]+$' AND split_part(m.name, ' ', 1) ~ '^[A-Z]{4,}$' ORDER BY 1 LIMIT 1`)).rows[0];
+    WHERE i.product_data->>'ac' ~ '^[A-Z]+ [A-Z]+$' AND split_part(m.name, ' ', 1) ~ '^[A-Z]{4,}$' ORDER BY 1 LIMIT 50`)).rows;
+  // The sample is picked from the vehicle's fitted set the search itself reads, so the check cannot pass vacuously and
+  // does not depend on where the sample ranks on page 1.
+  let sample: (typeof candidates)[number] | undefined;
+  let fitted = new Set<string>();
+  for (const candidate of candidates) {
+    const ids = await vehicleFittedIds(wholeWords(parseSearchQuery(candidate.model, { years: true })));
+    if (ids?.includes(candidate.id)) { sample = candidate; fitted = new Set(ids); break; }
+  }
+  if (candidates.length) assert.ok(sample, "a part linked to a vehicle is in that vehicle's fitted set");
   if (sample) {
     const linked = await browseProducts({ q: `${sample.name} ${sample.model}` });
     assert.equal(linked.vehicleScope?.fitted, true, `${sample.name} ${sample.model}`);
-    assert.ok(linked.items.some(item => item.id === sample.id));
+    // Name matches list first (the query may match product names alone); the vehicle's linked parts follow. Read every page.
+    const items = [...linked.items];
+    for (let page = 2; page <= linked.pages; page++) items.push(...(await browseProducts({ q: `${sample.name} ${sample.model}`, page: String(page) })).items);
+    assert.equal(items.length, linked.total);
+    assert.ok(items.some(item => item.id === sample.id), "the part linked to the vehicle is listed");
+    assert.ok(items.some(item => fitted.has(item.id)));
+    // Every part of that name that is linked to the vehicle is listed; the vehicle narrows the listing to those.
+    const all = await browseProducts({ q: sample.name });
+    assert.equal(all.vehicleScope, undefined);
+    const named = [...all.items];
+    for (let page = 2; page <= all.pages; page++) named.push(...(await browseProducts({ q: sample.name, page: String(page) })).items);
+    const listed = new Set(items.map(item => item.id));
+    const namedFitted = named.filter(item => fitted.has(item.id));
+    assert.ok(namedFitted.length > 0 && namedFitted.every(item => listed.has(item.id)), "every part of that name linked to the vehicle is listed");
+    assert.ok(linked.total < all.total, "without the vehicle every part of that name is listed");
     const reversed = await browseProducts({ q: `${sample.model} ${sample.name}` });
     assert.deepEqual(reversed.items.map(i => i.id).sort(), linked.items.map(i => i.id).sort());
   }
