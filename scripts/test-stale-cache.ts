@@ -547,3 +547,24 @@ test("maxServeMs: a stored row past the limit is not an earlier value for a boun
   assert.equal(await read, "fresh");
   await assert.rejects(make()("k", async () => { throw new Error("boom"); }, { maxServeMs: 10_000 }), /boom/);
 });
+
+test("per-cache stats carry the name and count hits, stale reads, misses, adoptions and evictions (#1461)", async () => {
+  const named = () => staleCacheStats().caches.find(cache => cache.name === "stats-probe")!;
+  const cache = staleCache<string[]>(60_000, 2, { name: "stats-probe" });
+  await cache("a", async () => ["x"]);
+  await cache("a", async () => ["y"]);
+  await cache("b", async () => ["x"]);
+  await cache("c", async () => ["x"]);
+  assert.deepEqual({ ...named() }, { name: "stats-probe", entries: 2, weight: 0, hits: 1, stale: 0, misses: 3, reloads: 0, adopted: 0, evicted: 1 });
+  const unnamed = staleCache<number>(60_000);
+  await unnamed("k", async () => 1);
+  assert.ok(staleCacheStats().caches.some(item => /^cache#\d+$/.test(item.name)), "a cache without a name gets cache#<n>");
+});
+
+test("a read of an entry past its TTL counts as stale and starts one refresh", async () => {
+  const cache = staleCache<number>(1, 5, { name: "stale-probe" });
+  await cache("k", async () => 1);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(await cache("k", async () => 2), 1);
+  assert.equal(staleCacheStats().caches.find(item => item.name === "stale-probe")!.stale, 1);
+});

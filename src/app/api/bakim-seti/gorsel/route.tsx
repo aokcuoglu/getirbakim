@@ -24,7 +24,7 @@ const fonts = Promise.all([
 ]);
 const idList = z.string().max(300).transform(value => value.split(",").map(id => id.trim()).filter(Boolean))
   .pipe(z.array(z.uuid()).min(1).max(maxKitImageItems));
-const rendered = staleCache<{ body: Buffer; etag: string }>(24 * 60 * 60 * 1000, 200);
+const rendered = staleCache<{ body: Buffer; etag: string }>(24 * 60 * 60 * 1000, 200,{name:"kit-images"});
 
 export async function GET(request: Request) {
   const ids = idList.safeParse(new URL(request.url).searchParams.get("urun") ?? "");

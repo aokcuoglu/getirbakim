@@ -1,10 +1,13 @@
+import { registerEntries } from "@/lib/cache-registry";
+
 /**
  * Process-local cache with a hard expiry, for short-lived answers that may be repeated but must not get old (a price
  * shown for display). Unlike staleCache an entry older than `ttlMs` is never served: the caller waits for a new load.
  * Concurrent callers of one key share the load; a failed load is not cached. Least recently used entries leave first.
  */
-export function ttlCache<T>(ttlMs: number, maxEntries = 100, now: () => number = Date.now) {
+export function ttlCache<T>(ttlMs: number, maxEntries = 100, now: () => number = Date.now, name?: string) {
   const entries = new Map<string, { value: Promise<T>; expiresAt: number }>();
+  registerEntries(name, () => entries.size, () => entries.clear());
   return (key: string, load: () => Promise<T>): Promise<T> => {
     const entry = entries.get(key);
     entries.delete(key);
@@ -28,8 +31,9 @@ export function ttlCache<T>(ttlMs: number, maxEntries = 100, now: () => number =
  * they ask for another built from the same load still share it when the load took longer than `holdMs`. A failed load is
  * dropped as it fails, so the next caller tries again. Least recently used entries leave first.
  */
-export function sharedLoads<T>(holdMs: number, maxEntries = 100, now: () => number = Date.now) {
+export function sharedLoads<T>(holdMs: number, maxEntries = 100, now: () => number = Date.now, name?: string) {
   const entries = new Map<string, { value: Promise<T>; expiresAt: number }>();
+  registerEntries(name, () => entries.size, () => entries.clear());
   return (key: string, load: () => Promise<T>): Promise<T> => {
     const time = now();
     for (const [stored, old] of entries) if (old.expiresAt <= time) entries.delete(stored);

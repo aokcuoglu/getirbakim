@@ -7,10 +7,10 @@ import { getVehicleModelImages } from "./vehicle-images.server";
 import { vehicleModelGroups, type VehicleModelGroup } from "./vehicle-model-groups";
 
 // The vehicle catalog changes only with TecDoc imports; a make's units are shared per process.
-const cachedGroups = staleCache<VehicleModelGroup[]>(10 * 60 * 1000, 300);
-const cachedEngines = staleCache<ModelGroupEngines[]>(10 * 60 * 1000, 300);
-const cachedFacts = staleCache<ModelGroupFacts>(10 * 60 * 1000, 300);
-const cachedMotorcycles = staleCache<string[]>(10 * 60 * 1000, 300);
+const cachedGroups = staleCache<VehicleModelGroup[]>(10 * 60 * 1000, 300,{name:"model-groups"});
+const cachedEngines = staleCache<ModelGroupEngines[]>(10 * 60 * 1000, 300,{name:"model-engines"});
+const cachedFacts = staleCache<ModelGroupFacts>(10 * 60 * 1000, 300,{name:"model-facts"});
+const cachedMotorcycles = staleCache<string[]>(10 * 60 * 1000, 300,{name:"motorcycles"});
 // REPXPERT's body type of two-wheelers (db/vehicle-type-specs.sql, npm run vehicles:repxpert).
 const motorcycleBody = "İki tekerlekli taşıt";
 

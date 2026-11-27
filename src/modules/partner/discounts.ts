@@ -28,7 +28,7 @@ export async function partnerDiscount(partner: string, fallbackBps: number, conn
   return resolvePartnerDiscount((await panelDiscounts([partner], connection)).get(partner), fallbackBps);
 }
 
-const cachedPanel = ttlCache<number | null>(partnerDiscountTtlMs, 100);
+const cachedPanel = ttlCache<number | null>(partnerDiscountTtlMs, 100, Date.now, "partner-discount-panel");
 // Saving bumps the generation, so this process never serves a discount read before the save again.
 let generation = 0;
 

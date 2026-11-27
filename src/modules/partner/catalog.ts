@@ -28,7 +28,7 @@ export type PartnerSearchSource = "part_no" | "oem" | "search";
 
 // Since #1394 a response may be built from an earlier ranking (the reload time plus up to 30 s); fitment levels stay live.
 // Nothing partner-specific goes in: the discount is one setting for every partner, and it is part of the key.
-const cachedResponses = ttlCache<PartnerProduct[]>(partnerResponseTtlMs, 100);
+const cachedResponses = ttlCache<PartnerProduct[]>(partnerResponseTtlMs, 100, Date.now, "partner-responses");
 
 /**
  * Partner search over the storefront catalog: the same search engine, ranking, visibility and prices the shop uses, so
