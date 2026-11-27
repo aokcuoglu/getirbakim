@@ -13,7 +13,7 @@ import { PaymentWatcher } from "@/components/payment-watcher";
 import { PayButton } from "@/components/pay-button";
 import { CancelOrderButton } from "@/components/cancel-order-button";
 import { PAYMENT_NOTICE, paymentErrors } from "@/modules/payments/messages";
-import { installmentHint } from "@/modules/payments/installment-plan";
+import { NO_FEE_LABEL, installmentHint, isNoFeeInstallment } from "@/modules/payments/installment-plan";
 import { currentAccount } from "@/modules/auth/session";
 import { orderPendingReturns, orderReturns } from "@/modules/admin/data";
 import { supplierNames } from "@/modules/admin/products";
@@ -176,7 +176,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? storeErrorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
       <p role="status" className="m-0 text-[15px] leading-6">{order.payment_status==="on_account" && <StoreIcon name="info" className="mr-1.5 inline-block size-4 align-text-bottom"/>}{notice}</p>
-      {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli (vade farkı dahil) toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}
+      {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli{Number(order.installment_fee_kurus)>0 ? " (vade farkı dahil)" : `, ${NO_FEE_LABEL}`} toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}
       {payNow && <PayButton orderId={order.id} total={total} installments={order.installment_count}/>}
       {payNow && <p className={panelMuted}>{PAYMENT_NOTICE}{order.payment_due_at && <><br/>Son ödeme zamanı: <time dateTime={new Date(order.payment_due_at).toISOString()}>{time(order.payment_due_at)}</time></>}</p>}
       {trackUrl && <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full")} render={<a href={order.tracking_url ?? undefined} target="_blank" rel="noopener noreferrer"/>}>Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></Button>}
@@ -198,7 +198,8 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
             <div className={row}><dt>Ürün toplamı</dt><dd className={value}>{money(Number(order.subtotal_kurus))}</dd></div>
             {order.discount_percent>0 && <div className={row}><dt>Servis indirimi</dt><dd className={value}>%{order.discount_percent} uygulandı</dd></div>}
             <div className={row}><dt>Kargo</dt><dd className={value}>{Number(order.shipping_kurus) ? money(Number(order.shipping_kurus)) : order.payment_status==="none" ? "Teyitte belirlenir" : "Ücretsiz"}</dd></div>
-            {Number(order.installment_fee_kurus)>0 && <div className={row}><dt>Vade farkı ({order.installment_count} taksit)</dt><dd className={value}>{money(Number(order.installment_fee_kurus))}</dd></div>}
+            {Number(order.installment_fee_kurus)>0 ? <div className={row}><dt>Vade farkı ({order.installment_count} taksit)</dt><dd className={value}>{money(Number(order.installment_fee_kurus))}</dd></div>
+              : isNoFeeInstallment({count:order.installment_count,feeKurus:0}) && <div className={row}><dt>Ödeme</dt><dd className={value}>{order.installment_count} taksit · {NO_FEE_LABEL}</dd></div>}
             <div className={cn(row,"text-base font-semibold")}><dt>Toplam <small className="font-normal text-muted-foreground">(KDV dahil)</small></dt><dd className={cn(value,"text-lg")}>{total}</dd></div>
           </dl>
           <Separator/>

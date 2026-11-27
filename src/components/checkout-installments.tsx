@@ -3,7 +3,7 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
 import { Field, FieldContent, FieldDescription, FieldLabel, FieldLegend, FieldSet, FieldTitle } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { INSTALLMENT_CARDS_NOTE, installmentHint, type InstallmentOption } from "@/modules/payments/installment-plan";
+import { INSTALLMENT_CARDS_NOTE, NO_FEE_LABEL, installmentHint, isNoFeeInstallment, type InstallmentOption } from "@/modules/payments/installment-plan";
 import { money } from "@/modules/store/money";
 
 type InstallmentState = { options: InstallmentOption[]; setCount: (count: number) => void; selected: InstallmentOption };
@@ -36,7 +36,7 @@ export function InstallmentPicker() {
           <FieldContent className="min-w-0">
             <FieldTitle className="text-sm">{option.count === 1 ? "Tek çekim" : `${option.count} taksit`}</FieldTitle>
             <FieldDescription className="text-xs leading-[18px] tabular-nums">{option.count === 1 ? money(option.totalKurus)
-              : `Aylık ${money(option.monthlyKurus)} · toplam ${money(option.totalKurus)}`}</FieldDescription>
+              : <>Aylık {money(option.monthlyKurus)} · toplam {money(option.totalKurus)}{isNoFeeInstallment(option) && <span className="whitespace-nowrap"> · {NO_FEE_LABEL}</span>}</>}</FieldDescription>
           </FieldContent>
         </Field>
       </FieldLabel>)}
@@ -47,10 +47,10 @@ export function InstallmentPicker() {
   </FieldSet>;
 }
 
-/** "Vade farkı (N taksit)" row of a summary <dl>; nothing for the single payment or outside checkout. */
+/** "Vade farkı (N taksit)" row of a summary <dl>; nothing for the single payment, a no-fee option or outside checkout. */
 export function InstallmentFeeRow() {
   const option = useInstallment()?.selected;
-  if (!option || option.count === 1) return null;
+  if (!option || option.count === 1 || isNoFeeInstallment(option)) return null;
   return <div className="flex justify-between gap-3"><dt>Vade farkı ({option.count} taksit)</dt><dd className="m-0 text-right tabular-nums">{money(option.feeKurus)}</dd></div>;
 }
 
