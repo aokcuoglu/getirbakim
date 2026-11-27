@@ -970,7 +970,7 @@
     "title": "Mesafeli Satış Sözleşmesi",
     "sourceUrl": "https://getirbakim.com/mesafeli-satis-sozlesmesi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-19",
+    "updatedAt": "2026-11-27",
     "description": "Tüketiciyle kurulacak mesafeli satış sözleşmesinin genel hükümleri ve tarafların hakları.",
     "sections": [
       {
@@ -1134,6 +1134,34 @@
             "attrs": {},
             "children": [
               "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Sunulmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "strong",
+                "attrs": {},
+                "children": [
+                  "Taksit."
+                ]
+              },
+              " Ödeme, TAMI’nin ödeme sayfasında kredi kartı veya banka kartıyla yapılır. Banka kartıyla yapılan ödemeler tek çekimdir. Kredi kartında taksit, yalnızca ödeme sayfasında o kart için gösterilen anlaşmalı kart programları ve taksit sayılarıyla yapılabilir. Taksitli ödemede vade farkı uygulanmaz; ödenecek toplam tutar tek çekim tutarıyla aynıdır. Taksitlendirme, kartı çıkaran banka ile kart sahibi arasındaki sözleşmeye göre yürütülür; satıcı kredi vermez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "strong",
+                "attrs": {},
+                "children": [
+                  "İade."
+                ]
+              },
+              " Cayma veya iade durumunda tahsil edilen tutar, ödemenin yapıldığı karta iade edilir. İadenin karta yansıma süresi ve taksitlerin geri alınma şekli kartı çıkaran bankanın uygulamasına bağlıdır."
             ]
           },
           {
@@ -1715,7 +1743,7 @@
     "title": "Ön Bilgilendirme Formu",
     "sourceUrl": "https://getirbakim.com/on-bilgilendirme-formu",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-19",
+    "updatedAt": "2026-11-27",
     "description": "Sipariş öncesinde sunulan bilgilerin kapsamı ve tüketici hakları.",
     "sections": [
       {
@@ -1887,6 +1915,34 @@
             "attrs": {},
             "children": [
               "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Sunulmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "strong",
+                "attrs": {},
+                "children": [
+                  "Taksit."
+                ]
+              },
+              " Ödeme, TAMI’nin ödeme sayfasında kredi kartı veya banka kartıyla yapılır. Banka kartıyla yapılan ödemeler tek çekimdir. Kredi kartında taksit, yalnızca ödeme sayfasında o kart için gösterilen anlaşmalı kart programları ve taksit sayılarıyla yapılabilir. Taksitli ödemede vade farkı uygulanmaz; ödenecek toplam tutar tek çekim tutarıyla aynıdır. Taksitlendirme, kartı çıkaran banka ile kart sahibi arasındaki sözleşmeye göre yürütülür; satıcı kredi vermez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "strong",
+                "attrs": {},
+                "children": [
+                  "İade."
+                ]
+              },
+              " Cayma veya iade durumunda tahsil edilen tutar, ödemenin yapıldığı karta iade edilir. İadenin karta yansıma süresi ve taksitlerin geri alınma şekli kartı çıkaran bankanın uygulamasına bağlıdır."
             ]
           },
           {

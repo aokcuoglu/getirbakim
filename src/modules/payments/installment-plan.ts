@@ -15,6 +15,25 @@ export const INSTALLMENT_COUNTS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 export const INSTALLMENT_CARDS_NOTE = "Bonus, World, Maximum, Axess, Paraf, CardFinans, Bankkart, Advantage kredi kartlarında geçerlidir; banka kartında tek çekim.";
 
+/** An installment option the customer pays no fee for ("vade farksız", #1462): the merchant carries the commission. */
+export function isNoFeeInstallment(option: Pick<InstallmentOption, "count" | "feeKurus">) {
+  return option.count > 1 && option.feeKurus === 0;
+}
+
+/**
+ * Whether a TAMI count differing from the order's chosen option needs no merchant follow-up (#1462): the chosen option
+ * carried no fee (fee 0) and the paid count is a single payment or an offered option with no fee. Uses the settings
+ * at payment time, so a later rate change can turn an old order's count into a fee one.
+ */
+export function installmentCountIsFeeFree(settings: InstallmentSettings, order: { totalKurus: number; feeKurus: number }, actual: number) {
+  if (order.feeKurus !== 0) return false;
+  if (actual === 1) return true;
+  const option = installmentOptions(settings, order.totalKurus).find(candidate => candidate.count === actual);
+  return option !== undefined && option.feeKurus === 0;
+}
+
+export const NO_FEE_LABEL = "vade farksız";
+
 export function installmentHint(count: number) {
   return `TAMI ödeme sayfasında ${count} taksit seçin`;
 }

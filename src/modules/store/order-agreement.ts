@@ -7,7 +7,7 @@ import { money } from "./money";
  * buyer, lines, prices and totals filled in, built once when the order is placed and stored as an immutable copy.
  * Bump AGREEMENT_TEMPLATE_VERSION whenever the code-generated sections below change wording or structure.
  */
-export const AGREEMENT_TEMPLATE_VERSION = 4;
+export const AGREEMENT_TEMPLATE_VERSION = 5;
 export const agreementSlugs = ["on-bilgilendirme-formu", "mesafeli-satis-sozlesmesi"] as const;
 type AgreementSlug = (typeof agreementSlugs)[number];
 type LegalSection = LegalDocument["sections"][number];
@@ -75,9 +75,9 @@ function orderSection(order: AgreementOrder, lines: AgreementLine[]): LegalSecti
     field("Ürün toplamı", money(order.subtotalKurus)),
     ...(order.discountPercent > 0 ? [field("Servis indirimi", `%${order.discountPercent} (birim fiyatlara uygulanmıştır)`)] : []),
     field("Kargo", order.shippingKurus > 0 ? money(order.shippingKurus) : "Ücretsiz"),
-    ...(installments > 1 ? [field(`Vade farkı (${installments} taksit)`, money(order.installmentFeeKurus ?? 0))] : []),
+    ...(installments > 1 && (order.installmentFeeKurus ?? 0) > 0 ? [field(`Vade farkı (${installments} taksit)`, money(order.installmentFeeKurus ?? 0))] : []),
     field("Ödenecek toplam (tüm vergiler dahil)", money(order.totalKurus)),
-    field("Ödeme", installments > 1 ? `Kart ile, TAMI ortak ödeme sayfasında ${installments} taksitle ödeme` : "Kart ile, TAMI ortak ödeme sayfasında peşin ödeme"),
+    field("Ödeme", installments > 1 ? `Kart ile, TAMI ortak ödeme sayfasında ${installments} taksitle ödeme${(order.installmentFeeKurus ?? 0) > 0 ? "" : " (vade farksız)"}` : "Kart ile, TAMI ortak ödeme sayfasında peşin ödeme"),
     field("Teslimat adresi", order.address),
     ...(order.note ? [field("Sipariş notu", order.note)] : []),
   ] };
