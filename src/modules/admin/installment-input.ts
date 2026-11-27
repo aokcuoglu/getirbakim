@@ -5,8 +5,13 @@ import { INSTALLMENT_COUNTS } from '@/modules/payments/installment-plan';
 const decimal=(max:number)=>z.string().trim().min(1).transform(Number).pipe(z.number().min(0).max(max).multipleOf(0.01));
 const percent=decimal(50);
 
-/** Form fields of the installment settings card (#886). A rate below the single-payment rate is allowed: it means no fee (#1462). */
+/** Form fields of the installment settings card (#886). A rate is 0 ("vade farksız", #1462) or at least the single-payment rate. */
 export const installmentInput=z.object({
  enabled:z.literal('on').optional(),max:z.coerce.number().int().min(2).max(12),minBasket:decimal(10000000),singleRate:percent,
  ...Object.fromEntries(INSTALLMENT_COUNTS.map(count=>[`rate_${count}`,percent])) as Record<`rate_${(typeof INSTALLMENT_COUNTS)[number]}`,typeof percent>,
+}).superRefine((input,ctx)=>{
+ for(const count of INSTALLMENT_COUNTS) {
+  const rate=input[`rate_${count}`];
+  if(rate!==0 && rate<input.singleRate) ctx.addIssue({code:'custom',path:[`rate_${count}`],message:'between 0 and single rate'});
+ }
 });

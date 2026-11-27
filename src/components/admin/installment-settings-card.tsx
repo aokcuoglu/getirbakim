@@ -20,7 +20,7 @@ export function InstallmentSettingsCard({ settings }: { settings: InstallmentSet
     <Card id="taksit-ayarlari" role="region" aria-labelledby="installments-title">
       <CardHeader>
         <CardTitle><h2 id="installments-title" className="flex items-center gap-2"><CreditCard className="size-4" aria-hidden="true"/>Taksit ve vade farkı</h2></CardTitle>
-        <CardDescription>Müşteri toplamı = tek çekim fiyatı × (1 − tek çekim oranı) / (1 − taksit oranı). Oran 0 ya da tek çekim oranını geçmiyorsa müşteriden vade farkı alınmaz ve taksit sitede “vade farksız” yazar; komisyonu işyeri öder. Tutar TAMI ortak ödeme sayfasında tahsil edilir.</CardDescription>
+        <CardDescription>Müşteri toplamı = tek çekim fiyatı × (1 − tek çekim oranı) / (1 − taksit oranı). Oran 0 = vade farksız: müşteriden vade farkı alınmaz ve taksit sitede “vade farksız” yazar; komisyonu işyeri öder. Tutar TAMI ortak ödeme sayfasında tahsil edilir.</CardDescription>
         <CardAction>{settings.enabled
           ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Taksit açık</Badge>
           : <Badge variant="secondary"><CircleMinus data-icon="inline-start" aria-hidden="true"/>Taksit kapalı</Badge>}</CardAction>
@@ -46,7 +46,7 @@ export function InstallmentSettingsCard({ settings }: { settings: InstallmentSet
           <Field>
             <FieldLabel htmlFor="installments-single-rate">Tek çekim oranı (%)</FieldLabel>
             <Input id="installments-single-rate" name="singleRate" type="number" inputMode="decimal" min={0} max={50} step={0.01} defaultValue={percent(settings.singleRateBp)} required/>
-            <FieldDescription>TAMI tek çekim komisyonu. Bundan düşük bir taksit oranı vade farkı doğurmaz.</FieldDescription>
+            <FieldDescription>TAMI tek çekim komisyonu. Taksit oranı 0 (vade farksız) ya da en az bu oran olmalı.</FieldDescription>
           </Field>
         </FieldGroup>
         <Table controls={false} aria-label="Taksit oranları">
