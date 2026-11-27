@@ -36,7 +36,7 @@ export function InstallmentPicker() {
           <FieldContent className="min-w-0">
             <FieldTitle className="text-sm">{option.count === 1 ? "Tek çekim" : `${option.count} taksit`}</FieldTitle>
             <FieldDescription className="text-xs leading-[18px] tabular-nums">{option.count === 1 ? money(option.totalKurus)
-              : `Aylık ${money(option.monthlyKurus)} · toplam ${money(option.totalKurus)}${isNoFeeInstallment(option) ? ` · ${NO_FEE_LABEL}` : ""}`}</FieldDescription>
+              : <>Aylık {money(option.monthlyKurus)} · toplam {money(option.totalKurus)}{isNoFeeInstallment(option) && <span className="whitespace-nowrap"> · {NO_FEE_LABEL}</span>}</>}</FieldDescription>
           </FieldContent>
         </Field>
       </FieldLabel>)}

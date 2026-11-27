@@ -14,7 +14,7 @@ export function PaymentOptions({ options }: { options: InstallmentOption[] }) {
       <AccordionTrigger className="items-center gap-4 rounded-none py-[18px] hover:no-underline">
         <StoreIcon name="credit-card" size={32} className="shrink-0"/>
         <span className="min-w-0"><strong className="block text-base font-medium">Ödeme seçenekleri</strong>
-          <small className="mt-1 block text-[13px] font-normal text-[#53677d]">{isNoFeeInstallment(longest) ? `Tek çekim veya ${longest.count} taksite kadar, ${NO_FEE_LABEL}` : `Tek çekim veya ${longest.count} taksite kadar · aylık ${money(longest.monthlyKurus)}`}</small></span>
+          <small className="mt-1 block text-[13px] font-normal text-[#53677d]">Tek çekim veya {longest.count} taksite kadar · aylık {money(longest.monthlyKurus)}{options.slice(1).every(isNoFeeInstallment) && ` · ${NO_FEE_LABEL}`}</small></span>
       </AccordionTrigger>
       <AccordionContent className="pb-[18px]">
         <ul className="m-0 grid list-none p-0 text-sm leading-5">

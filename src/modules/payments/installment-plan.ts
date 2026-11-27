@@ -20,6 +20,18 @@ export function isNoFeeInstallment(option: Pick<InstallmentOption, "count" | "fe
   return option.count > 1 && option.feeKurus === 0;
 }
 
+/**
+ * Whether a TAMI count differing from the order's chosen option needs no merchant follow-up (#1462): the chosen option
+ * carried no fee (fee 0) and the paid count is a single payment or an offered option with no fee. Uses the settings
+ * at payment time, so a later rate change can turn an old order's count into a fee one.
+ */
+export function installmentCountIsFeeFree(settings: InstallmentSettings, order: { totalKurus: number; feeKurus: number }, actual: number) {
+  if (order.feeKurus !== 0) return false;
+  if (actual === 1) return true;
+  const option = installmentOptions(settings, order.totalKurus).find(candidate => candidate.count === actual);
+  return option !== undefined && option.feeKurus === 0;
+}
+
 export const NO_FEE_LABEL = "vade farksız";
 
 export function installmentHint(count: number) {

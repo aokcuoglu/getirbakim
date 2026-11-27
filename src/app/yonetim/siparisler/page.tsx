@@ -38,7 +38,8 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { NO_FEE_LABEL, isNoFeeInstallment } from "@/modules/payments/installment-plan";
+import { NO_FEE_LABEL, installmentCountIsFeeFree, isNoFeeInstallment } from "@/modules/payments/installment-plan";
+import { installmentSettings } from "@/modules/payments/installment-settings";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -78,7 +79,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
   const params = normalizeSearchParams(await searchParams);
   const geliverMode = geliverConfig()?.mode ?? null;
   const mailReady = mailConfig().kind !== "none";
-  const [{ orders, page, filter, procurement, owner, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status, params, params.tedarik, params.sahip), fitmentReturnReport()]);
+  const [{ orders, page, filter, procurement, owner, counts }, fitment, installments] = await Promise.all([adminOrders(params.page, params.status, params, params.tedarik, params.sahip), fitmentReturnReport(), installmentSettings()]);
   const href = (changes: { status?: string; page?: number; procurement?: string; owner?: string }) => {
     const query = new URLSearchParams();
     const status = changes.status ?? filter;
@@ -185,7 +186,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                         <span className="text-muted-foreground">Son 5 değişiklik; tümü Partnerler sayfasında.</span>
                       </dd>}
                     </div>}
-                    {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
+                    {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""}${Number.isInteger(p.installment_count) && p.installment_count! > 0 ? ` · ${p.installment_count} taksit` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
                     {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd className="break-all">{o.refund_reference}</dd></div>}
                     {o.refunded_at && <div><dt className="text-muted-foreground">İade zamanı</dt><dd>{time(o.refunded_at)}</dd></div>}
@@ -261,7 +262,8 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}
               {Number(o.installment_fee_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Vade farkı {money(Number(o.installment_fee_kurus))} · {o.installment_count} taksit</div>}
               {isNoFeeInstallment({ count: o.installment_count, feeKurus: Number(o.installment_fee_kurus) }) && <div className="text-muted-foreground tabular-nums">{o.installment_count} taksit · {NO_FEE_LABEL}</div>}
-              {!isNoFeeInstallment({ count: o.installment_count, feeKurus: Number(o.installment_fee_kurus) }) && o.payments.some(p => p.status === "succeeded" && Number.isInteger(p.installment_count) && p.installment_count! >= 1 && p.installment_count !== o.installment_count)
+              {o.payments.some(p => p.status === "succeeded" && Number.isInteger(p.installment_count) && p.installment_count! >= 1 && p.installment_count !== o.installment_count
+                && !installmentCountIsFeeFree(installments, { totalKurus: Number(o.total_kurus), feeKurus: Number(o.installment_fee_kurus) }, p.installment_count!))
                 && <Badge variant="warning" className="mt-1" title="Ödenen taksit sayısı siparişten farklı"><TriangleAlert data-icon="inline-start"/>Taksit sayısı farklı<span className="sr-only">: ödenen taksit sayısı siparişten farklı</span></Badge>}</TableCell>
             <TableCell>
               {cancelRequest && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">

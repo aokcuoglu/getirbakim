@@ -102,7 +102,7 @@ test("the admin form accepts valid settings and refuses out-of-range ones", () =
   assert.equal(installmentInput.safeParse(off).data?.enabled, undefined);
   assert.ok(installmentInput.safeParse({ ...form, rate_3: "0" }).success, "rate 0 means no fee (#1462)");
   assert.equal(installmentInput.safeParse({ ...form, rate_3: "2.84" }).success, false, "rate between 0 and the single rate");
-  assert.equal(installmentInput.safeParse({ ...form, rate_3: "0.795" }).success, false, "typo for 7.95");
+  assert.equal(installmentInput.safeParse({ ...form, rate_3: "0.80" }).success, false, "typo for 7.95");
   assert.equal(installmentInput.safeParse({ ...form, rate_3: "" }).success, false, "empty rate");
   assert.equal(installmentInput.safeParse({ ...form, singleRate: "" }).success, false, "empty single rate");
   assert.equal(installmentInput.safeParse({ ...form, max: "13" }).success, false, "max 13");

@@ -7,7 +7,7 @@ import { money } from "./money";
  * buyer, lines, prices and totals filled in, built once when the order is placed and stored as an immutable copy.
  * Bump AGREEMENT_TEMPLATE_VERSION whenever the code-generated sections below change wording or structure.
  */
-export const AGREEMENT_TEMPLATE_VERSION = 4;
+export const AGREEMENT_TEMPLATE_VERSION = 5;
 export const agreementSlugs = ["on-bilgilendirme-formu", "mesafeli-satis-sozlesmesi"] as const;
 type AgreementSlug = (typeof agreementSlugs)[number];
 type LegalSection = LegalDocument["sections"][number];
