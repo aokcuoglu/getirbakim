@@ -577,7 +577,8 @@ test("a settled entry holds no Promise, so it does not keep the request that loa
   const flags = process.allowedNodeEnvironmentFlags.has("--no-async-context-frame") ? ["--no-async-context-frame"] : [];
   const result = spawnSync(process.execPath, [...flags, "--expose-gc", "--conditions=react-server", "--import", "tsx", "scripts/test-stale-cache-retain.ts"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /retained=0 of 80\b/, result.stdout);
+  assert.match(result.stdout, /retained=0 of \d+\b/, result.stdout);
+  assert.match(result.stdout, / of 120\b/, "the epoch reload and TTL refresh requests are counted too");
 });
 
 test("weight helpers estimate bytes", () => {
@@ -642,5 +643,38 @@ test("STALE_CACHE_MAX_MB=0 turns the budget off", async () => {
     await cache("a", async () => ({ bytes: 400 * 1024 * 1024 }));
     await cache("b", async () => ({ bytes: 400 * 1024 * 1024 }));
     assert.equal(entriesOf("budget-off"), 2);
+  });
+});
+
+test("a failed epoch reload re-measures the entry it restores, even when that entry settled while out of the map", async () => {
+  await withBudget("0", async () => {
+  const start = before();
+  let epoch = 1;
+  const cache = staleCache<string[]>(60_000, 100, { ...weighed, maxWeight: 1000, epoch: async () => epoch });
+  const first = deferred<string[]>();
+  const firstRead = cache("k", () => first.promise);
+  await pause(0);
+  epoch = 2;
+  const reload = deferred<string[]>();
+  const reloadRead = cache("k", () => reload.promise);
+  await pause(0);
+  first.resolve(ids(50));
+  assert.equal((await firstRead).length, 50);
+  await pause(0);
+  await quietErrors(async () => { reload.reject(new Error("boom")); assert.equal((await reloadRead).length, 50); });
+  assert.equal(staleCacheStats().weight - start.weight, 51, "the restored entry weighs its value, not 0");
+  });
+});
+
+test("a weigh that throws or answers a bad number counts as the base weight", async () => {
+  await withBudget("0", async () => {
+  const start = before();
+  const answers: Record<string, () => number> = { throws: () => { throw new Error("bad"); }, nan: () => NaN, infinite: () => Infinity, negative: () => -5 };
+  const cache = staleCache<string>(60_000, 100, { weigh: key => answers[key]() });
+  for (const key of Object.keys(answers)) assert.equal(await cache(key, async () => key), key);
+  const stats = staleCacheStats();
+  assert.equal(stats.entries - start.entries, 4);
+  assert.equal(stats.weight - start.weight, 4 * 128 + "throwsnaninfinitenegative".length);
+  assert.ok(Number.isFinite(stats.weight));
   });
 });

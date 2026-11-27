@@ -8,6 +8,7 @@ import { Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,
 import { StoreIcon } from "@/components/site/store-icon";
 import { after } from "next/server";
 import { headers } from "next/headers";
+import { isCrawlerUserAgent } from "@/lib/crawler-user-agent";
 import { recordSearch } from "@/modules/search/analytics";
 import { typeNameFirstPage } from "@/modules/search/type-names";
 import { browseProducts,isPlainSearch,catalogFacets,vehicleFitCount,vehicleLead,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
@@ -104,7 +105,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  // Search analytics (#822): a plain search's first page, counted after the response; crawlers and prefetches are not shoppers.
  if(isPlainSearch(params)&&result.page===1){
   const request=await headers();
-  const crawler=/bot|crawl|spider|slurp|preview|headless|lighthouse/i.test(request.get("user-agent")??"");
+  const crawler=isCrawlerUserAgent(request.get("user-agent"));
   const prefetch=request.has("next-router-prefetch")||/prefetch/i.test(request.get("sec-purpose")??request.get("purpose")??"");
   const mode=params.searchBy==="code"?"code":"all";
   // #989: how many first-page cards the type-name expansion translated, measured after the response too; a corrected

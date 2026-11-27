@@ -24,6 +24,22 @@ for (let index = 0; index < 20; index++) {
 }
 // Reading settled entries from another request must not pin that request either.
 for (let index = 0; index < 20; index++) await request(() => stale(`k${index}`, async () => ["unused"]));
+// An epoch reload and a TTL refresh run inside the request that triggers them, and settle into the same entry.
+let epoch = 1;
+const reloading = staleCache<string[]>(60_000, 100, { epoch: async () => epoch });
+const refreshing = staleCache<string[]>(1, 100);
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+for (let index = 0; index < 10; index++) {
+  const key = `e${index}`;
+  await request(() => reloading(key, async () => [key]));
+  epoch++;
+  await request(() => reloading(key, async () => [key, "reloaded"]));
+  await pause(2);
+  await request(() => refreshing(key, async () => [key]));
+  await pause(5);
+  await request(() => refreshing(key, async () => [key, "refreshed"]));
+  await pause(5);
+}
 const collect = async () => {
   for (let round = 0; round < 5; round++) {
     (globalThis as { gc?: () => void }).gc?.();

@@ -7,12 +7,12 @@
 // logged (src/lib/memory-log.ts; start the server with MEMORY_LOG_INTERVAL_MS=15000 and pass its log with --log).
 // `--filters` adds listing variants (sorts, deep pages, in-stock and brand/attribute filters); `--searches <file>` adds
 // /katalog?q= URLs from a file of terms, only with a crawler user agent (the default `getirbakim-memory-bot` is one):
-// other agents record every search in the database, so search URLs are refused. `--probe` sends SIGUSR2 to --pid after
+// other agents record every search in the database, so search URLs are refused. `--probe` (needs --log) sends SIGUSR2 to --pid after
 // the last round (start the server with MEMORY_PROBE=1 and node --expose-gc) and prints the `Cache probe:` lines.
 // Point it at a build, not `next dev`.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { defaultUserAgent, listingVariants, searchAllowed, searchPaths } from "./memory-urls.mjs";
+import { defaultUserAgent, listingVariants, probeArmed, searchAllowed, searchPaths } from "./memory-urls.mjs";
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -45,8 +45,20 @@ if (searchesFile && !searchAllowed(userAgent)) {
   console.error(`--searches needs a crawler user agent (matching /bot|crawl|spider|slurp|preview|headless|lighthouse/i); "${userAgent}" would record every search`);
   process.exit(2);
 }
-if (probe && !pid) {
-  console.error("--probe needs --pid");
+if (probe && (!pid || !logFile)) {
+  console.error("--probe needs --pid and --log");
+  process.exit(2);
+}
+// SIGUSR2 kills a process that has no handler: only a server that logged `Memory probe: armed pid=<pid>` gets it.
+const armed = () => {
+  try {
+    return probeArmed(readFileSync(logFile, "utf8"), pid);
+  } catch {
+    return false;
+  }
+};
+if (probe && !armed()) {
+  console.error(`--probe: no "Memory probe: armed pid=${pid}" line in ${logFile}; start the server with MEMORY_PROBE=1`);
   process.exit(2);
 }
 
@@ -179,7 +191,8 @@ for (let round = 1; round <= rounds; round++) {
   const timing = Object.entries(timings).filter(([, list]) => list.length).map(([kind, list]) => `${kind}=${list.length}x${(list.reduce((sum, ms) => sum + ms, 0) / list.length).toFixed(0)}ms`).join(" ");
   console.log(`round ${round}: requests=${requests} failed=${failed} rss=${rssMb().toFixed(0)}MB avg(${timing}) ${lastMemoryLine()}`);
 }
-if (probe) {
+if (probe && !armed()) console.error("--probe: the armed line is gone from the log; SIGUSR2 not sent");
+else if (probe) {
   const before = logFile ? readFileSync(logFile, "utf8").split("\n").length : 0;
   process.kill(Number(pid), "SIGUSR2");
   // The probe collects garbage after every cache; wait for its closing line.

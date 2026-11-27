@@ -1,11 +1,14 @@
 // Pure helpers of measure-memory.mjs (#1461): listing URL variants and the guard that keeps search URLs away from
 // the search statistics table.
 
-/** Matches the user agents catalog-view.tsx treats as crawlers; their searches are not recorded in search_query_stats. */
+/** Matches the user agents catalog-view.tsx treats as crawlers (a copy of src/lib/crawler-user-agent.ts, checked by measure-memory.test.mjs); their searches are not recorded in search_query_stats. */
 export const crawlerPattern = /bot|crawl|spider|slurp|preview|headless|lighthouse/i;
 export const defaultUserAgent = "getirbakim-memory-bot";
 
 export const isCrawlerAgent = (userAgent) => crawlerPattern.test(userAgent ?? "");
+
+/** Whether the server log shows the cache probe's handler installed in process `pid` (src/lib/memory-log.ts). */
+export const probeArmed = (logText, pid) => logText.split("\n").some((line) => line.trim() === `Memory probe: armed pid=${pid}`);
 
 /** A search URL (`?q=`) is only allowed with a crawler user agent, so the visit is not recorded as a search. */
 export const searchAllowed = (userAgent) => isCrawlerAgent(userAgent);

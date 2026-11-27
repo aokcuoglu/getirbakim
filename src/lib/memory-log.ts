@@ -13,7 +13,7 @@ const lookups = (stats: Stats) => served(stats) + stats.misses + stats.reloads;
  * One log line with the process memory split (RSS vs V8 heap vs external buffers), the stale-cache footprint (approximate bytes) and, since
  * #1461, what the caches did since `previous` (the last line): `hit` is the share of reads served from memory, `evicted`
  * the entries pushed out. `top` lists the `topN` caches by weight and `topEntries` by entry count, so the log shows
- * which cache grows. scripts/harness/measure-memory.mjs parses the `Memory:` prefix and the `caches=` token.
+ * which cache grows. scripts/harness/measure-memory.mjs filters on the `Memory:` prefix only and prints the line.
  */
 export function formatMemoryLine(usage: NodeJS.MemoryUsage, stats: Stats, previous: Stats | null = null, topN = 6) {
   const reads = lookups(stats) - (previous ? lookups(previous) : 0);
@@ -78,4 +78,6 @@ export function startMemoryProbe(log: (line: string) => void = console.log) {
     if (hasGc) probeCaches(collect, log);
     else log("Cache probe: skipped, start node with --expose-gc");
   });
+  // The harness sends SIGUSR2 only after it has seen this line: a process without the handler would be killed by it.
+  log(`Memory probe: armed pid=${process.pid}`);
 }

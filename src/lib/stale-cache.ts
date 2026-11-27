@@ -185,7 +185,18 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     entries.delete(key);
     if (evicted) counters.evicted++;
   };
-  const measure = (key: string, value: T) => (weigh ? weigh(value) : baseWeight) + key.length;
+  // A `weigh` that throws or answers with a number that is not finite and non-negative counts as the base weight, so the
+  // totals can never become NaN.
+  const measure = (key: string, value: T) => {
+    let size = baseWeight;
+    if (weigh) {
+      try {
+        const weighed = weigh(value);
+        if (Number.isFinite(weighed) && weighed >= 0) size = weighed;
+      } catch { /* the base weight stands */ }
+    }
+    return size + key.length;
+  };
   // Called after a load: the oldest entries go while the total is over the bound; `keep` (the loaded one) stays.
   const trim = (keep: string) => {
     if (maxWeight !== undefined) trimToMax(keep, maxWeight);
@@ -298,7 +309,14 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       // A failed reload after an epoch change serves the old value; the old entry's epoch makes the next request try again.
       fresh.value = fresh.value!.catch(error => {
         console.error("Stale cache reload failed; serving the previous value", error);
-        if (entries.get(key) === fresh) { drop(key); entries.set(key, previous); totalWeight += previous.weight; trim(key); }
+        if (entries.get(key) === fresh) {
+          drop(key);
+          // The previous entry may have settled or refreshed while it was out of the map, which no weight counted: measure it again.
+          previous.weight = previous.known ? measure(key, previous.known.value) : 0;
+          entries.set(key, previous);
+          totalWeight += previous.weight;
+          trim(key);
+        }
         return previous.known ? previous.known.value : previous.value!;
       });
     } else if (earlier) {
