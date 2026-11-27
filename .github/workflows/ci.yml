@@ -62,7 +62,7 @@ jobs:
       # uploaded the owner's whole ~/.npm (~2.8 GB, ~8.5 min per run) while npm ci already takes seconds there (#1225).
       - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
           cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
           package-manager-cache: ${{ runner.environment == 'github-hosted' }}
       - run: npm ci

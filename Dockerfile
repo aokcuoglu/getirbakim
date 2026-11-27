@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS dependencies
+FROM node:24-bookworm-slim AS dependencies
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
@@ -21,7 +21,7 @@ ADD --checksum=sha256:90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34e
 USER node
 CMD ["node", "--import", "tsx", "scripts/setup.ts"]
 
-FROM node:22-bookworm-slim AS app
+FROM node:24-bookworm-slim AS app
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=builder --chown=node:node /app/.next/standalone ./
