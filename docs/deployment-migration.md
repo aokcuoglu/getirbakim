@@ -29,7 +29,7 @@ Staging ayrı Compose projesi (`getirbakim-v2-staging`), özel ağ, PostgreSQL v
 
 Önceki workflow şu adımları uyguluyordu:
 
-1. Node 24 ile typecheck, lint, mevcut birim testleri ve production build.
+1. Node 22 ile typecheck, lint, mevcut birim testleri ve production build.
 2. GitHub runner üzerinde uygulama, operasyon ve medya Docker image'larının build'i. VPS'te build yapılmaz. Hazır MinIO registry image'larına erişilemediğinden [resmi kaynak koddan build yöntemi](https://github.com/minio/minio#build-docker-image) kullanılır; MinIO `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a`, mc `7394ce0dd2a80935aded936b09fa12cbb3cb8096` commit'lerine sabitlenmiştir.
 3. Mevcut `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` repo sırlarıyla image aktarımı.
 4. Yalnızca `/opt/getirbakim-v2` klasöründe ilgili commit'e geçiş. Kirli checkout durdurulur.
