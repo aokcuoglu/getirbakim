@@ -1,6 +1,13 @@
 /** What a cache did since the process started (#1461): reads served from memory, served stale, loaded, adopted from the store, evicted. */
 export type Counters = { hits: number; stale: number; misses: number; reloads: number; adopted: number; evicted: number };
-export type CacheInstance = { name: string; size: () => number; weight: () => number; counters: Counters; clear: () => void };
+/**
+ * `oldest`: this cache's least recently used settled entry of at least `minWeight` bytes (not `skip`), as its global
+ * recency tick and a way to evict it; undefined for caches without weighed entries (the process-wide budget, #1461).
+ */
+export type CacheInstance = {
+  name: string; size: () => number; weight: () => number; counters: Counters; clear: () => void;
+  oldest?: (minWeight: number, skip: string | undefined) => { usedAt: number; evict: () => void } | undefined;
+};
 // Next bundles instrumentation.ts (which logs the stats) apart from the route handlers (which create the caches), so a
 // module-level set would be empty where it is read. Instances are registered only in production, where every cache is
 // created at module level (a bounded number), so a dev re-evaluation pins nothing. Not WeakRefs: the SWC minifier

@@ -10,7 +10,7 @@ const served = (stats: Stats) => stats.hits + stats.stale;
 const lookups = (stats: Stats) => served(stats) + stats.misses + stats.reloads;
 
 /**
- * One log line with the process memory split (RSS vs V8 heap vs external buffers), the stale-cache footprint and, since
+ * One log line with the process memory split (RSS vs V8 heap vs external buffers), the stale-cache footprint (approximate bytes) and, since
  * #1461, what the caches did since `previous` (the last line): `hit` is the share of reads served from memory, `evicted`
  * the entries pushed out. `top` lists the `topN` caches by weight and `topEntries` by entry count, so the log shows
  * which cache grows. scripts/harness/measure-memory.mjs parses the `Memory:` prefix and the `caches=` token.
@@ -20,9 +20,9 @@ export function formatMemoryLine(usage: NodeJS.MemoryUsage, stats: Stats, previo
   const hit = reads > 0 ? Math.round(100 * (served(stats) - (previous ? served(previous) : 0)) / reads) : 0;
   const evicted = stats.evicted - (previous?.evicted ?? 0);
   const top = (key: "weight" | "entries") => [...stats.caches].filter(cache => cache[key] > 0).sort((a, b) => b[key] - a[key]).slice(0, topN);
-  const byWeight = top("weight").map(cache => `${cache.name}:${cache.entries}:${cache.weight}`).join(",");
+  const byWeight = top("weight").map(cache => `${cache.name}:${cache.entries}:${(cache.weight / 1048576).toFixed(1)}MB`).join(",");
   const byEntries = top("entries").map(cache => `${cache.name}:${cache.entries}`).join(",");
-  return `Memory: rss=${mb(usage.rss)} heapUsed=${mb(usage.heapUsed)} heapTotal=${mb(usage.heapTotal)} external=${mb(usage.external)} arrayBuffers=${mb(usage.arrayBuffers)} caches=${stats.entries}/${stats.weight} hit=${hit}% evicted=${evicted} top=${byWeight} topEntries=${byEntries}`;
+  return `Memory: rss=${mb(usage.rss)} heapUsed=${mb(usage.heapUsed)} heapTotal=${mb(usage.heapTotal)} external=${mb(usage.external)} arrayBuffers=${mb(usage.arrayBuffers)} caches=${stats.entries}/${mb(stats.weight)} hit=${hit}% evicted=${evicted} top=${byWeight} topEntries=${byEntries}`;
 }
 
 export function memoryLimits() {

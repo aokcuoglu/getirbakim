@@ -6,23 +6,22 @@ import { registerEntries } from "@/lib/cache-registry";
  * Concurrent callers of one key share the load; a failed load is not cached. Least recently used entries leave first.
  */
 export function ttlCache<T>(ttlMs: number, maxEntries = 100, now: () => number = Date.now, name?: string) {
-  const entries = new Map<string, { value: Promise<T>; expiresAt: number }>();
+  const entries = new Map<string, Held<T>>();
   registerEntries(name, () => entries.size, () => entries.clear());
   return (key: string, load: () => Promise<T>): Promise<T> => {
     const entry = entries.get(key);
     entries.delete(key);
     if (entry && entry.expiresAt > now()) {
       entries.set(key, entry);
-      return entry.value;
+      return serve(entry);
     }
     const time = now();
     // Expired entries are never served again: dropped on every insert, so they do not hold memory until evicted.
     for (const [stored, old] of entries) if (old.expiresAt <= time) entries.delete(stored);
-    const fresh = { value: load(), expiresAt: time + ttlMs };
-    fresh.value.catch(() => { if (entries.get(key) === fresh) entries.delete(key); });
+    const fresh = hold<T>(load(), time + ttlMs, () => { if (entries.get(key) === fresh) entries.delete(key); });
     entries.set(key, fresh);
     if (entries.size > maxEntries) entries.delete(entries.keys().next().value!);
-    return fresh.value;
+    return serve(fresh);
   };
 }
 /**
@@ -32,7 +31,7 @@ export function ttlCache<T>(ttlMs: number, maxEntries = 100, now: () => number =
  * dropped as it fails, so the next caller tries again. Least recently used entries leave first.
  */
 export function sharedLoads<T>(holdMs: number, maxEntries = 100, now: () => number = Date.now, name?: string) {
-  const entries = new Map<string, { value: Promise<T>; expiresAt: number }>();
+  const entries = new Map<string, Held<T>>();
   registerEntries(name, () => entries.size, () => entries.clear());
   return (key: string, load: () => Promise<T>): Promise<T> => {
     const time = now();
@@ -41,15 +40,26 @@ export function sharedLoads<T>(holdMs: number, maxEntries = 100, now: () => numb
     if (entry) {
       entries.delete(key);
       entries.set(key, entry);
-      return entry.value;
+      return serve(entry);
     }
-    const fresh = { value: load(), expiresAt: Infinity };
-    fresh.value.then(() => { fresh.expiresAt = now() + holdMs; }, () => { if (entries.get(key) === fresh) entries.delete(key); });
+    const fresh = hold<T>(load(), Infinity, () => { if (entries.get(key) === fresh) entries.delete(key); }, () => { fresh.expiresAt = now() + holdMs; });
     entries.set(key, fresh);
     if (entries.size > maxEntries) entries.delete(entries.keys().next().value!);
-    return fresh.value;
+    return serve(fresh);
   };
 }
+
+/**
+ * An entry holds its load only while it runs and the plain value afterwards (#1461): a cached Promise keeps the async
+ * context of the request that created it alive on Node 22, with everything that request's stores reference.
+ */
+type Held<T> = { pending?: Promise<T>; settled?: { value: T }; expiresAt: number };
+function hold<T>(pending: Promise<T>, expiresAt: number, failed: () => void, fulfilled: () => void = () => {}): Held<T> {
+  const entry: Held<T> = { pending, expiresAt };
+  pending.then(value => { entry.settled = { value }; entry.pending = undefined; fulfilled(); }, failed);
+  return entry;
+}
+const serve = <T>(entry: Held<T>): Promise<T> => entry.settled ? Promise.resolve(entry.settled.value) : entry.pending!;
 
 /**
  * Remembers that a load failed so callers do not repeat it at once (#1416): `hold(key, error)` keeps the failure for

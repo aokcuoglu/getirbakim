@@ -1,17 +1,60 @@
 import "server-only";
-import { cacheInstances, newCounters, type Counters } from "@/lib/cache-registry";
+import { cacheInstances, newCounters, type CacheInstance, type Counters } from "@/lib/cache-registry";
 
 /** An earlier value callers of a pending load may get after maxWaitMs; null when there is none they may get. */
 type Earlier<T> = { value: T } | null;
 /**
- * `known`: the value the entry last resolved to (unset while its first load is pending). `earlier` and `fallbackAt` (when
- * it may be served) are set only while a load with a finite maxWaitMs is pending.
+ * `known`: the value the entry last resolved to (unset while its first load is pending). `value` is the pending load and
+ * is cleared once `known` is set (#1461): a settled entry holds the plain value, no Promise. On Node 22 (AsyncLocalStorage
+ * on async_hooks) every Promise created inside a request keeps the request's async context alive, with Next's stores and
+ * React's per-request caches; a cached Promise pinned all of them for the life of the entry. `earlier` and `fallbackAt`
+ * (when it may be served) are set only while a load with a finite maxWaitMs is pending.
  */
 type Entry<T> = {
-  value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number; weight: number; known?: { value: T };
+  value?: Promise<T>; loadedAt: number; usedAt: number; refreshing: boolean; epoch?: number; weight: number; known?: { value: T };
   earlier?: () => Promise<Earlier<T>>; fallbackAt?: number;
 };
 export type { Counters } from "@/lib/cache-registry";
+/**
+ * Approximate heap bytes of a cached value, for `weigh` (#1461): a uuid string is about 56 bytes plus an 8-byte slot, a
+ * string array adds 24 bytes of header, and a small object is counted as twice its JSON length. `weighJson` is for small
+ * values only (it serialises the value); a large value needs its own estimate.
+ */
+export const weighIds = (ids: readonly string[]) => 64 * ids.length;
+export const weighStrings = (list: readonly string[]) => list.reduce((sum, item) => sum + item.length + 8, 24);
+export const weighJson = (value: unknown) => 2 * JSON.stringify(value).length;
+export const weighBuffer = (buffer: Uint8Array) => buffer.length;
+/** What a settled entry weighs when the cache has no `weigh`, and the part of every entry that is its key's text. */
+const baseWeight = 128;
+
+// Process-wide budget (#1461): after a load, while every stale cache together weighs more than STALE_CACHE_MAX_MB, the
+// globally least recently used settled entry goes. The tick orders entries across caches; it lives on globalThis like the registry.
+const globalBudget = globalThis as typeof globalThis & { __staleCacheTick?: number };
+const nextTick = () => (globalBudget.__staleCacheTick = (globalBudget.__staleCacheTick ?? 0) + 1);
+/** Entries lighter than this are not worth evicting for the budget: the many small ones are bounded by maxEntries. */
+const budgetMinWeight = 4096;
+const budgetBytes = () => {
+  const setting = process.env.STALE_CACHE_MAX_MB?.trim();
+  const mb = setting ? Number(setting) : 256;
+  return (Number.isFinite(mb) && mb >= 0 ? mb : 256) * 1048576;
+};
+function enforceBudget(keep: { instance: CacheInstance; key: string }) {
+  const limit = budgetBytes();
+  if (limit === 0) return;
+  for (;;) {
+    let total = 0;
+    for (const instance of cacheInstances) total += instance.weight();
+    if (total <= limit) return;
+    let victim: { usedAt: number; evict: () => void } | undefined;
+    for (const instance of cacheInstances) {
+      const found = instance.oldest?.(budgetMinWeight, instance === keep.instance ? keep.key : undefined);
+      if (found && (!victim || found.usedAt < victim.usedAt)) victim = found;
+    }
+    if (!victim) return;
+    victim.evict();
+  }
+}
+
 /** Per-cache numbers of one stale cache, see `staleCacheStats`. */
 export type CacheStats = Counters & { name: string; entries: number; weight: number };
 /**
@@ -124,9 +167,17 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   const entries = new Map<string, Entry<T>>();
   let totalWeight = 0;
   const counters = newCounters();
-  if (process.env.NODE_ENV === "production") {
-    cacheInstances.add({ name, size: () => entries.size, weight: () => totalWeight, counters, clear: () => { entries.clear(); totalWeight = 0; } });
-  }
+  const instance: CacheInstance = {
+    name, size: () => entries.size, weight: () => totalWeight, counters, clear: () => { entries.clear(); totalWeight = 0; },
+    oldest: (minWeight, skip) => {
+      // Map order is recency order, so the first match is this cache's oldest.
+      for (const [key, entry] of entries) {
+        if (key !== skip && entry.known && entry.weight >= minWeight) return { usedAt: entry.usedAt, evict: () => drop(key, true) };
+      }
+      return undefined;
+    },
+  };
+  if (process.env.NODE_ENV === "production") cacheInstances.add(instance);
   const drop = (key: string, evicted = false) => {
     const entry = entries.get(key);
     if (!entry) return;
@@ -134,12 +185,15 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     entries.delete(key);
     if (evicted) counters.evicted++;
   };
-  const measure = (value: T) => weigh ? weigh(value) : 0;
+  const measure = (key: string, value: T) => (weigh ? weigh(value) : baseWeight) + key.length;
   // Called after a load: the oldest entries go while the total is over the bound; `keep` (the loaded one) stays.
   const trim = (keep: string) => {
-    if (maxWeight === undefined) return;
+    if (maxWeight !== undefined) trimToMax(keep, maxWeight);
+    enforceBudget({ instance, key: keep });
+  };
+  const trimToMax = (keep: string, bound: number) => {
     for (const key of entries.keys()) {
-      if (totalWeight <= maxWeight || entries.size <= 1) return;
+      if (totalWeight <= bound || entries.size <= 1) return;
       // A pending entry (weight 0) frees nothing, and dropping it would make its next reader load the value again.
       if (key !== keep && entries.get(key)!.weight > 0) drop(key, true);
     }
@@ -163,14 +217,14 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     entry.refreshing = true;
     obtain(key, load, at, persist, ttlMs)
       .then(loaded => {
-        entry.value = Promise.resolve(loaded.value);
+        entry.value = undefined;
         if (loaded.ageMs !== undefined) counters.adopted++;
         entry.known = { value: loaded.value };
         entry.earlier = entry.fallbackAt = undefined;
         entry.loadedAt = Date.now() - (loaded.ageMs ?? 0);
         // An entry evicted while it refreshed is no longer counted.
         if (entries.get(key) === entry) {
-          const weight = measure(loaded.value);
+          const weight = measure(key, loaded.value);
           totalWeight += weight - entry.weight;
           entry.weight = weight;
           trim(key);
@@ -182,12 +236,14 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   // A pending entry with an earlier value: the load's result, or the earlier value once `fallbackAt` has passed and it is known.
   const serve = (entry: Entry<T>): Promise<T> => {
     const { earlier, fallbackAt = 0 } = entry;
-    if (!earlier || entry.known) return entry.value;
+    if (entry.known) return Promise.resolve(entry.known.value);
+    const pending = entry.value!;
+    if (!earlier) return pending;
     const wait = fallbackAt - Date.now();
     return new Promise<T>((resolve, reject) => {
       let done = false, timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (settle: () => void) => { if (!done) { done = true; clearTimeout(timer); settle(); } };
-      entry.value.then(value => finish(() => resolve(value)), error => finish(() => reject(error)));
+      pending.then(value => finish(() => resolve(value)), error => finish(() => reject(error)));
       const useEarlier = () => void earlier().then(found => { if (found) finish(() => resolve(found.value)); });
       // Not unref()ed: it lives at most `wait` and is cleared when the load settles; an unref()ed timer let the test
       // runner end a test whose only pending work was this wait (CI, Node 22).
@@ -197,7 +253,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   // What a reload replacing `entry` may serve: the value it last resolved to; while its first load is still pending, its
   // own earlier value, or (it has none) that load.
   const earlierOf = (entry: Entry<T>): Promise<Earlier<T>> => entry.known ? Promise.resolve(entry.known)
-    : entry.earlier ? entry.earlier() : entry.value.then(value => ({ value }), () => null);
+    : entry.earlier ? entry.earlier() : entry.value!.then(value => ({ value }), () => null);
   const usable = (found: Earlier<T>): Earlier<T> => found && fallbackWhen(found.value) ? found : null;
   // `maxServe` (CallOptions.maxServeMs, 0: none) bounds the age of anything this load's callers are served before it settles.
   // `overAge`: `previous` is older than that, so it is no earlier value to wait past: callers wait for the load (its failure
@@ -221,6 +277,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     const value = obtain(key, load, epoch ?? 0, persist, Math.min(previous ? ttlMs : maxStaleMs, maxServe || Infinity), foundStored,
       Math.min(maxFallbackMs, maxServe || Infinity)).then(loaded => {
       fresh.known = { value: loaded.value };
+      fresh.value = undefined;
       if (loaded.ageMs !== undefined) {
         counters.adopted++;
         fresh.loadedAt = Date.now() - loaded.ageMs;
@@ -229,25 +286,25 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       }
       if (entries.get(key) === fresh) {
         // A refresh of this pending entry may have set a weight already: count only the difference.
-        const weight = measure(loaded.value);
+        const weight = measure(key, loaded.value);
         totalWeight += weight - fresh.weight;
         fresh.weight = weight;
         trim(key);
       }
       return loaded.value;
     });
-    const fresh: Entry<T> = { value, loadedAt, refreshing: false, epoch, weight: 0, earlier, fallbackAt: earlier ? loadedAt + bound : undefined };
+    const fresh: Entry<T> = { value, loadedAt, usedAt: nextTick(), refreshing: false, epoch, weight: 0, earlier, fallbackAt: earlier ? loadedAt + bound : undefined };
     if (previous) {
       // A failed reload after an epoch change serves the old value; the old entry's epoch makes the next request try again.
-      fresh.value = fresh.value.catch(error => {
+      fresh.value = fresh.value!.catch(error => {
         console.error("Stale cache reload failed; serving the previous value", error);
         if (entries.get(key) === fresh) { drop(key); entries.set(key, previous); totalWeight += previous.weight; trim(key); }
-        return previous.value;
+        return previous.known ? previous.known.value : previous.value!;
       });
     } else if (earlier) {
       // A failed load after a memory miss serves the stored value it could not adopt; the entry goes, so the next request
       // tries again. Without such a value the error reaches the callers.
-      fresh.value = fresh.value.catch(async error => {
+      fresh.value = fresh.value!.catch(async error => {
         if (entries.get(key) === fresh) drop(key);
         const found = await earlier();
         if (!found) throw error;
@@ -256,11 +313,11 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       });
     } else {
       // A failed first load is not cached: the next request tries again.
-      fresh.value.catch(() => { if (entries.get(key) === fresh) drop(key); });
+      fresh.value!.catch(() => { if (entries.get(key) === fresh) drop(key); });
     }
     // Settled: later callers get the value directly, and the replaced entry is no longer held. Both handlers, so a
     // failure is not reported as unhandled here.
-    if (earlier) { const settled = () => { fresh.earlier = fresh.fallbackAt = undefined; }; fresh.value.then(settled, settled); }
+    if (earlier) { const settled = () => { fresh.earlier = fresh.fallbackAt = undefined; }; fresh.value!.then(settled, settled); }
     drop(key);
     entries.set(key, fresh);
     if (entries.size > maxEntries) drop(entries.keys().next().value!, true);
@@ -275,6 +332,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     // A TTL refresh already running when the entry crosses the bound is not reused: a duplicate load is possible within one refresh's duration.
     if (maxServe && entry.known && Date.now() - entry.loadedAt > maxServe) { counters.reloads++; return insert(key, load, epoch, persist, entry, maxServe, true); }
     // Map order doubles as recency for eviction.
+    entry.usedAt = nextTick();
     entries.delete(key); entries.set(key, entry);
     if (Date.now() - entry.loadedAt > ttlMs) {
       counters.stale++;

@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { staleCache } from "@/lib/stale-cache";
+import { staleCache, weighIds, weighJson } from "@/lib/stale-cache";
 import { categoryProductIds } from "./catalog";
 import { sellableProducts } from "./maintenance-kit.server";
 import type { OilCandidate, OilTarget } from "./related-rules";
@@ -11,7 +11,7 @@ export const maxOilLitres = 5;
 
 // The candidate ids only: the suggestion's own sellableProducts call prices the picked ones live, so a product that went
 // out of stock or lost its price since is still never shown.
-const cachedCandidates = staleCache<OilCandidate[]>(5 * 60 * 1000, 1,{name:"fluid-candidates"});
+const cachedCandidates = staleCache<OilCandidate[]>(5 * 60 * 1000, 1,{name:"fluid-candidates",weigh:weighJson});
 /** Engine oils of at most `maxOilLitres` per pack that were sellable when the list was built (#715). */
 export const suggestableOils = () => cachedCandidates("all", async () => {
   const small = (await engineOils()).flatMap(oil => oil.litres !== null && oil.litres <= maxOilLitres ? [{ ...oil, litres: oil.litres }] : []);
@@ -20,7 +20,7 @@ export const suggestableOils = () => cachedCandidates("all", async () => {
 });
 
 // Same as the oils: the fluids that had a price and stock when the list was built, priced again live when suggested.
-const cachedFluids = staleCache<string[]>(5 * 60 * 1000, 50,{name:"related-fluids"});
+const cachedFluids = staleCache<string[]>(5 * 60 * 1000, 50,{name:"related-fluids",weigh:weighIds});
 /**
  * The sellable products of a fluid category (brake fluid, coolant…) for the dialog's fluid pick (#715). Most listed fluids
  * have no offer; ranking the whole category and pricing only the first few left the sellable ones out, so the rotation

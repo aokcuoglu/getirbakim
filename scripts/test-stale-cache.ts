@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { staleCache, staleCacheStats } from "../src/lib/stale-cache";
+import { spawnSync } from "node:child_process";
+import { staleCache, staleCacheStats, weighBuffer, weighIds, weighJson, weighStrings } from "../src/lib/stale-cache";
 
 // Caches register for staleCacheStats only in production; staleCache() reads NODE_ENV when a cache is created.
 (process.env as Record<string, string>).NODE_ENV = "production";
 
 const ids = (count: number) => Array.from({ length: count }, (_, index) => String(index));
+// A cached entry weighs its value's size plus its key's length (#1461); the keys below are short.
 const weighed = { weigh: (value: string[]) => value.length };
 const before = () => staleCacheStats();
 
@@ -14,9 +16,9 @@ test("the weight bound evicts the oldest entries and keeps the newest one", asyn
   const cache = staleCache<string[]>(60_000, 100, { ...weighed, maxWeight: 10 });
   await cache("a", async () => ids(4));
   await cache("b", async () => ids(4));
-  assert.equal(staleCacheStats().weight - start.weight, 8);
+  assert.equal(staleCacheStats().weight - start.weight, 10);
   await cache("c", async () => ids(4));
-  assert.equal(staleCacheStats().weight - start.weight, 8, "a was evicted");
+  assert.equal(staleCacheStats().weight - start.weight, 10, "a was evicted");
   let reloaded = 0;
   await cache("a", async () => { reloaded++; return ids(1); });
   assert.equal(reloaded, 1, "the evicted key loads again");
@@ -32,7 +34,7 @@ test("the entry just loaded stays even when it alone exceeds the bound", async (
   await cache("big", async () => ids(50));
   const stats = staleCacheStats();
   assert.equal(stats.entries - start.entries, 1);
-  assert.equal(stats.weight - start.weight, 50);
+  assert.equal(stats.weight - start.weight, 53);
   let loads = 0;
   await cache("big", async () => { loads++; return []; });
   assert.equal(loads, 0);
@@ -42,11 +44,11 @@ test("a refresh that changes the size adjusts the total", async () => {
   const start = before();
   const cache = staleCache<string[]>(1, 100, { ...weighed, maxWeight: 1000 });
   await cache("k", async () => ids(10));
-  assert.equal(staleCacheStats().weight - start.weight, 10);
+  assert.equal(staleCacheStats().weight - start.weight, 11);
   await new Promise(done => setTimeout(done, 10));
   await cache("k", async () => ids(3));
   await new Promise(done => setTimeout(done, 10));
-  assert.equal(staleCacheStats().weight - start.weight, 3);
+  assert.equal(staleCacheStats().weight - start.weight, 4);
 });
 
 test("a failed first load leaves the total unchanged", async () => {
@@ -72,7 +74,7 @@ test("a failed epoch reload restores the previous entry with its weight", async 
     assert.equal(value.length, 7);
   } finally { console.error = original; }
   const stats = staleCacheStats();
-  assert.equal(stats.weight - start.weight, 7);
+  assert.equal(stats.weight - start.weight, 8);
   assert.equal(stats.entries - start.entries, 1);
 });
 
@@ -84,7 +86,7 @@ test("without weigh the entry-count LRU is unchanged", async () => {
   await cache("c", async () => ids(1000));
   const stats = staleCacheStats();
   assert.equal(stats.entries - start.entries, 2);
-  assert.equal(stats.weight - start.weight, 0);
+  assert.equal(stats.weight - start.weight, 2 * (128 + 1), "an entry without weigh weighs 128 bytes plus its key");
 });
 
 test("staleCacheStats sums over instances", async () => {
@@ -95,7 +97,7 @@ test("staleCacheStats sums over instances", async () => {
   await two("a", async () => ids(4));
   const stats = staleCacheStats();
   assert.equal(stats.entries - start.entries, 2);
-  assert.equal(stats.weight - start.weight, 7);
+  assert.equal(stats.weight - start.weight, 9);
 });
 
 const pause = (ms: number) => new Promise(done => setTimeout(done, ms));
@@ -110,7 +112,7 @@ test("a refresh that finishes before a slow first load leaves the total at the f
   await pause(10);
   const stats = staleCacheStats();
   assert.equal(stats.entries - start.entries, 1);
-  assert.equal(stats.weight - start.weight, 10, "the total equals the entry's final weight, not the sum of both loads");
+  assert.equal(stats.weight - start.weight, 11, "the total equals the entry's final weight, not the sum of both loads");
 });
 
 test("a pending entry is not evicted by the weight bound", async () => {
@@ -130,14 +132,14 @@ test("a pending entry is not evicted by the weight bound", async () => {
 test("a restored entry after a failed epoch reload respects the bound", async () => {
   const start = before();
   let epoch = 1;
-  const cache = staleCache<string[]>(60_000, 100, { ...weighed, maxWeight: 10, epoch: async () => epoch });
+  const cache = staleCache<string[]>(60_000, 100, { ...weighed, maxWeight: 12, epoch: async () => epoch });
   await cache("a", async () => ids(6));
   await cache("b", async () => ids(4));
   epoch = 2;
   const original = console.error;
   console.error = () => {};
   try { await cache("a", async () => { throw new Error("boom"); }); } finally { console.error = original; }
-  assert.ok(staleCacheStats().weight - start.weight <= 10);
+  assert.ok(staleCacheStats().weight - start.weight <= 12);
 });
 
 // maxWaitMs (#771): a caller waits at most that long for a reload when an earlier value exists.
@@ -233,15 +235,15 @@ test("maxWaitMs: the weight total stays right while and after a fallback is serv
   epoch = 2;
   const reload = deferred<string[]>();
   assert.equal((await cache("a", () => reload.promise)).length, 5, "the previous value is served");
-  assert.equal(staleCacheStats().weight - start.weight, 4, "the pending reload weighs nothing yet");
+  assert.equal(staleCacheStats().weight - start.weight, 5, "the pending reload weighs nothing yet");
   reload.resolve(ids(3));
   await pause(0);
-  assert.equal(staleCacheStats().weight - start.weight, 7);
+  assert.equal(staleCacheStats().weight - start.weight, 9);
   const failing = deferred<string[]>();
   assert.equal((await cache("b", () => failing.promise)).length, 4);
   await quietErrors(async () => { failing.reject(new Error("boom")); await pause(5); });
   const stats = staleCacheStats();
-  assert.equal(stats.weight - start.weight, 7, "the restored entry is counted once");
+  assert.equal(stats.weight - start.weight, 9, "the restored entry is counted once");
   assert.equal(stats.entries - start.entries, 2);
 });
 
@@ -555,7 +557,7 @@ test("per-cache stats carry the name and count hits, stale reads, misses, adopti
   await cache("a", async () => ["y"]);
   await cache("b", async () => ["x"]);
   await cache("c", async () => ["x"]);
-  assert.deepEqual({ ...named() }, { name: "stats-probe", entries: 2, weight: 0, hits: 1, stale: 0, misses: 3, reloads: 0, adopted: 0, evicted: 1 });
+  assert.deepEqual({ ...named() }, { name: "stats-probe", entries: 2, weight: 258, hits: 1, stale: 0, misses: 3, reloads: 0, adopted: 0, evicted: 1 });
   const unnamed = staleCache<number>(60_000);
   await unnamed("k", async () => 1);
   assert.ok(staleCacheStats().caches.some(item => /^cache#\d+$/.test(item.name)), "a cache without a name gets cache#<n>");
@@ -567,4 +569,78 @@ test("a read of an entry past its TTL counts as stale and starts one refresh", a
   await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(await cache("k", async () => 2), 1);
   assert.equal(staleCacheStats().caches.find(item => item.name === "stale-probe")!.stale, 1);
+});
+
+test("a settled entry holds no Promise, so it does not keep the request that loaded it alive (#1461)", () => {
+  // Node 22's AsyncLocalStorage keeps a request's stores reachable from every Promise created inside it; Node 24 does so
+  // with --no-async-context-frame (a flag Node 22 does not know, and does not need).
+  const flags = process.allowedNodeEnvironmentFlags.has("--no-async-context-frame") ? ["--no-async-context-frame"] : [];
+  const result = spawnSync(process.execPath, [...flags, "--expose-gc", "--conditions=react-server", "--import", "tsx", "scripts/test-stale-cache-retain.ts"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /retained=0 of 80\b/, result.stdout);
+});
+
+test("weight helpers estimate bytes", () => {
+  assert.equal(weighIds(ids(10)), 640);
+  assert.equal(weighStrings(["ab", "cde"]), 24 + 2 + 8 + 3 + 8);
+  assert.equal(weighJson({ a: 1 }), 2 * '{"a":1}'.length);
+  assert.equal(weighBuffer(Buffer.alloc(300)), 300);
+});
+
+// The process-wide budget (#1461): STALE_CACHE_MAX_MB, in mebibytes, evicts the globally least recently used settled
+// entry of 4 KB or more after a load; 0 turns it off.
+const withBudget = async (mb: string, run: () => Promise<void>) => {
+  const saved = process.env.STALE_CACHE_MAX_MB;
+  process.env.STALE_CACHE_MAX_MB = mb;
+  try { await run(); } finally { if (saved === undefined) delete process.env.STALE_CACHE_MAX_MB; else process.env.STALE_CACHE_MAX_MB = saved; }
+};
+const KB = 1024;
+const sized = () => ({ weigh: (value: { bytes: number }) => value.bytes });
+const own = (names: string[]) => staleCacheStats().caches.filter(cache => names.includes(cache.name));
+const entriesOf = (name: string) => own([name])[0].entries;
+
+test("the budget evicts the least recently used large entry across caches", async () => {
+  const one = staleCache<{ bytes: number }>(60_000, 100, { name: "budget-one", ...sized() });
+  const two = staleCache<{ bytes: number }>(60_000, 100, { name: "budget-two", ...sized() });
+  const others = staleCacheStats().weight;
+  await withBudget(String((others + 300 * KB) / 1048576), async () => {
+    await one("a", async () => ({ bytes: 100 * KB }));
+    await two("b", async () => ({ bytes: 100 * KB }));
+    await one("a", async () => ({ bytes: 1 }));
+    assert.deepEqual([entriesOf("budget-one"), entriesOf("budget-two")], [1, 1]);
+    await two("c", async () => ({ bytes: 150 * KB }));
+    // b was read least recently (a was read after it), so b goes, from the other cache than the one loading.
+    assert.deepEqual([entriesOf("budget-one"), entriesOf("budget-two")], [1, 1], "b was evicted, c stays");
+    let reloaded = 0;
+    await two("b", async () => { reloaded++; return { bytes: 1 }; });
+    assert.equal(reloaded, 1, "b loads again");
+    assert.ok(own(["budget-one", "budget-two"]).reduce((sum, cache) => sum + cache.evicted, 0) >= 1);
+  });
+});
+
+test("the budget never evicts pending entries, small entries or the entry just loaded", async () => {
+  const small = staleCache<{ bytes: number }>(60_000, 100, { name: "budget-small", ...sized() });
+  const big = staleCache<{ bytes: number }>(60_000, 100, { name: "budget-big", ...sized() });
+  const others = staleCacheStats().weight;
+  await withBudget(String((others + 8 * KB) / 1048576), async () => {
+    let release = () => {};
+    const pending = small("slow", () => new Promise<{ bytes: number }>(done => { release = () => done({ bytes: 100 }); }));
+    await small("tiny", async () => ({ bytes: 1 * KB }));
+    await big("huge", async () => ({ bytes: 500 * KB }));
+    assert.equal(entriesOf("budget-big"), 1, "the entry just loaded stays although it alone exceeds the budget");
+    assert.equal(entriesOf("budget-small"), 2, "the pending entry and the 1 KB entry stay");
+    release();
+    await pending;
+    await big("huge2", async () => ({ bytes: 500 * KB }));
+    assert.equal(entriesOf("budget-big"), 1, "huge went, huge2 stays");
+  });
+});
+
+test("STALE_CACHE_MAX_MB=0 turns the budget off", async () => {
+  const cache = staleCache<{ bytes: number }>(60_000, 100, { name: "budget-off", ...sized() });
+  await withBudget("0", async () => {
+    await cache("a", async () => ({ bytes: 400 * 1024 * 1024 }));
+    await cache("b", async () => ({ bytes: 400 * 1024 * 1024 }));
+    assert.equal(entriesOf("budget-off"), 2);
+  });
 });

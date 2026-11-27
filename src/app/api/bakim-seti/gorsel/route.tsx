@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { z } from "zod";
 import { objectStorage } from "@/lib/object-storage";
-import { staleCache } from "@/lib/stale-cache";
+import { staleCache, weighBuffer } from "@/lib/stale-cache";
 import { kitImageItems } from "@/modules/store/maintenance-kit.server";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { kitContentLine, kitCountLabel, kitImageLayout, kitImageSize, kitKindLabel, maxKitImageItems, type KitImageCell, type KitSlotKey } from "@/modules/store/maintenance-kit";
@@ -24,7 +24,7 @@ const fonts = Promise.all([
 ]);
 const idList = z.string().max(300).transform(value => value.split(",").map(id => id.trim()).filter(Boolean))
   .pipe(z.array(z.uuid()).min(1).max(maxKitImageItems));
-const rendered = staleCache<{ body: Buffer; etag: string }>(24 * 60 * 60 * 1000, 200,{name:"kit-images"});
+const rendered = staleCache<{ body: Buffer; etag: string }>(24 * 60 * 60 * 1000, 200,{name:"kit-images",weigh:image=>weighBuffer(image.body)+image.etag.length,maxWeight:32*1024*1024});
 
 export async function GET(request: Request) {
   const ids = idList.safeParse(new URL(request.url).searchParams.get("urun") ?? "");

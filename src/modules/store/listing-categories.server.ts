@@ -68,7 +68,7 @@ export const categoryAncestorsSql = (column: string) => `JOIN source_categories 
 // listing-epoch.ts), otherwise every 10 minutes in the background; after a bump a page waits at most
 // LISTING_EPOCH_WAIT_MS for the reload, then gets the earlier counts (none: it waits). One entry per make or model page
 // visited (~4.4k units): 1000 keeps the popular ones warm. Also persisted (#1391), so a new container adopts them.
-const cachedCounts = staleCache<[number, number][]>(10 * 60 * 1000, 1000, {name:"category-counts", epoch: fitsEpoch, maxWaitMs: listingWaitMs, ...storedLinks, fallbackWhen: counts => counts.length > 0, store: listingCacheStore<[number, number][]>("category-counts", 1) });
+const cachedCounts = staleCache<[number, number][]>(10 * 60 * 1000, 1000, {name:"category-counts", weigh: counts => 32 * counts.length, maxWeight: 16 * 1024 * 1024, epoch: fitsEpoch, maxWaitMs: listingWaitMs, ...storedLinks, fallbackWhen: counts => counts.length > 0, store: listingCacheStore<[number, number][]>("category-counts", 1) });
 
 /**
  * Products per category, subcategories included, of a make's or a vehicle model's listing ($1 companies, $2-$5
