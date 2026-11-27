@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  installmentFingerprint, installmentHint, installmentOptions, installmentTotal, type InstallmentSettings,
+  NO_FEE_LABEL, installmentFingerprint, installmentHint, installmentOptions, installmentTotal, isNoFeeInstallment, type InstallmentSettings,
 } from "../src/modules/payments/installment-plan";
 import { installmentInput } from "../src/modules/admin/installment-input";
 
@@ -55,6 +55,15 @@ test("a rate below the single rate charges no fee", () => {
   assert.equal(installmentTotal(100000, 285, 285), 100000);
 });
 
+test("a no-fee option equals the cash price and is labelled; a fee option and the single payment are not (#1462)", () => {
+  const options = installmentOptions({ ...seed, ratesBp: { ...seed.ratesBp, 2: 0, 3: 285 } }, 100000);
+  assert.deepEqual(options.filter(isNoFeeInstallment).map(option => option.count), [2, 3]);
+  for (const option of options.filter(isNoFeeInstallment)) assert.equal(option.totalKurus, 100000);
+  assert.equal(isNoFeeInstallment(options[0]), false, "single payment");
+  assert.equal(isNoFeeInstallment(options.find(option => option.count === 4)!), false, "fee option");
+  assert.equal(NO_FEE_LABEL, "vade farksız");
+});
+
 test("half a kuruş rounds up, below half rounds down", () => {
   // 1 × 9000 / 8000 = 1.125 → 1; 3 × 9000 / 6000 = 4.5 → 5; 5 × 9000 / 8000 = 5.625 → 6.
   assert.equal(installmentTotal(1, 1000, 2000), 1);
@@ -91,7 +100,8 @@ test("the admin form accepts valid settings and refuses out-of-range ones", () =
   const { enabled: _on, ...off } = form;
   assert.equal(_on, "on");
   assert.equal(installmentInput.safeParse(off).data?.enabled, undefined);
-  assert.equal(installmentInput.safeParse({ ...form, rate_3: "2.84" }).success, false, "rate below the single rate");
+  assert.ok(installmentInput.safeParse({ ...form, rate_3: "0" }).success, "rate 0 means no fee (#1462)");
+  assert.ok(installmentInput.safeParse({ ...form, rate_3: "2.84" }).success, "rate below the single rate");
   assert.equal(installmentInput.safeParse({ ...form, rate_3: "" }).success, false, "empty rate");
   assert.equal(installmentInput.safeParse({ ...form, singleRate: "" }).success, false, "empty single rate");
   assert.equal(installmentInput.safeParse({ ...form, max: "13" }).success, false, "max 13");

@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { NO_FEE_LABEL, isNoFeeInstallment } from "@/modules/payments/installment-plan";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -259,7 +260,8 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
             <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}
               {Number(o.installment_fee_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Vade farkı {money(Number(o.installment_fee_kurus))} · {o.installment_count} taksit</div>}
-              {o.payments.some(p => p.status === "succeeded" && Number.isInteger(p.installment_count) && p.installment_count! >= 1 && p.installment_count !== o.installment_count)
+              {isNoFeeInstallment({ count: o.installment_count, feeKurus: Number(o.installment_fee_kurus) }) && <div className="text-muted-foreground tabular-nums">{o.installment_count} taksit · {NO_FEE_LABEL}</div>}
+              {!isNoFeeInstallment({ count: o.installment_count, feeKurus: Number(o.installment_fee_kurus) }) && o.payments.some(p => p.status === "succeeded" && Number.isInteger(p.installment_count) && p.installment_count! >= 1 && p.installment_count !== o.installment_count)
                 && <Badge variant="warning" className="mt-1" title="Ödenen taksit sayısı siparişten farklı"><TriangleAlert data-icon="inline-start"/>Taksit sayısı farklı<span className="sr-only">: ödenen taksit sayısı siparişten farklı</span></Badge>}</TableCell>
             <TableCell>
               {cancelRequest && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">

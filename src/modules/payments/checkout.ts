@@ -266,6 +266,8 @@ async function installmentNote(client: PoolClient, order: { total_kurus: string;
   actual: number | null, providerOrderId: string, settled: boolean) {
   const chosen = order.installment_count;
   // An absent or malformed count (null, 0, NaN, fractional) says nothing about the installments: no note.
+  // A no-fee installment order (#1462) is paid the same whatever count the buyer picks on the hosted page.
+  if (chosen > 1 && Number(order.installment_fee_kurus) === 0) return null;
   if (actual === null || !Number.isInteger(actual) || actual < 1 || actual === chosen) return null;
   if (actual > chosen) {
     return `TAMI'de ${actual} taksitle ödendi (${providerOrderId}); ${chosen > 1 ? `siparişte ${chosen} taksit seçilmişti, ` : ""}taksit komisyon farkı işyerine yansır.`;

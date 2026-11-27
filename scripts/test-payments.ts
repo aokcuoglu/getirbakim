@@ -398,6 +398,20 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
       await payments.reconcileOrderPayments(oddCount);
       row = await order(oddCount);
       assert.equal(row.payment_status, "paid"); assert.equal(row.payment_note, "");
+      // #1462: a no-fee option (rates 2 and 3 at 0) charges the cash total and a different paid count raises no note, either way.
+      await db.query("UPDATE commerce_settings SET installment_rates=installment_rates || '{\"2\":0,\"3\":0}'::jsonb");
+      const noFeeSettings = await installmentSettings();
+      assert.deepEqual([noFeeSettings.ratesBp[2], noFeeSettings.ratesBp[3]], [0, 0]);
+      for (const paidCount of [1, 2, 6]) {
+        const noFee = await placeInstallments(3);
+        row = await order(noFee);
+        assert.equal(row.installment_count, 3); assert.equal(Number(row.installment_fee_kurus), 0); assert.equal(Number(row.total_kurus), cash);
+        const noFeeId = await addAttempt(noFee, 1);
+        paid.set(noFeeId, cash / 100); installments.set(noFeeId, paidCount);
+        await payments.reconcileOrderPayments(noFee);
+        row = await order(noFee);
+        assert.equal(row.payment_status, "paid"); assert.equal(row.payment_note, "", `paid in ${paidCount}`);
+      }
     } finally {
       await db.query("UPDATE commerce_settings SET installments_enabled=false");
     }

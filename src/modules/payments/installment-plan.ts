@@ -15,6 +15,13 @@ export const INSTALLMENT_COUNTS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 export const INSTALLMENT_CARDS_NOTE = "Bonus, World, Maximum, Axess, Paraf, CardFinans, Bankkart, Advantage kredi kartlarında geçerlidir; banka kartında tek çekim.";
 
+/** An installment option the customer pays no fee for ("vade farksız", #1462): the merchant carries the commission. */
+export function isNoFeeInstallment(option: Pick<InstallmentOption, "count" | "feeKurus">) {
+  return option.count > 1 && option.feeKurus === 0;
+}
+
+export const NO_FEE_LABEL = "vade farksız";
+
 export function installmentHint(count: number) {
   return `TAMI ödeme sayfasında ${count} taksit seçin`;
 }
