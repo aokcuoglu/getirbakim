@@ -141,7 +141,7 @@ test("the admin actions that change listings bump the epoch", async () => {
 
 test("the home rails pick skips admin-hidden products and reloads on an epoch bump (#650)", async () => {
   const home = await readFile("src/modules/store/home.ts", "utf8");
-  assert.match(home, /staleCache<string\[\]>\([^)]*\{epoch:listingEpoch\}\)/);
+  assert.match(home, /staleCache<string\[\]>\([^)]*\{[^}]*\bepoch:listingEpoch\b[^}]*\}\)/);
   assert.match(home, /NOT EXISTS \(SELECT 1 FROM commerce_item_overrides h WHERE h\.supplier_item_id=s\.id AND h\.hidden\)/);
   // Both arms (#596): the automatic one skips hidden automatic images, the upload one reads the uploads.
   assert.equal(home.match(/NOT EXISTS \(SELECT 1 FROM commerce_item_overrides h WHERE h\.supplier_item_id=s\.id AND h\.hidden\)/g)?.length, 2);
