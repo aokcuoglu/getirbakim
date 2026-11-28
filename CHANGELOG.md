@@ -2,6 +2,69 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.43.0 — 2026-11-28
+
+Release of `dev` since v0.42.1 (19 pull requests). This release brings:
+- no-fee installments in the storefront and the contract texts;
+- the fix for app tasks hitting the V8 heap cap every 1–4 h;
+- the app image on Node 24 with capped malloc arenas;
+- faster deep, stock-filtered and search listings.
+
+It does not deploy; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Installments without a fee ("vade farksız"):**
+  - An installment option with no fee reads "vade farksız" on the product page, in checkout, on the order page, in the admin order list and in the agreement. No "Vade farkı ₺0,00" row is shown.
+  - The admin rate input accepts exactly 0 (vade farksız) or a rate at or above the single-payment rate. A warning appears while an offered installment still carries a fee.
+  - No installment-count mismatch note is raised when both the chosen and the paid count are fee-free.
+  - The admin order shows the installment count TAMI reports.
+  - The distance-sale contract (§5) and the pre-sale information form (§4) gain "Taksit." and "İade." paragraphs. Agreement template v5 and legal version `2026-11-27.…` apply; new orders record the new version.
+  - TAMI's hosted page offers 2 and 3 installments, and the merchant pays the commission ([#1463](https://github.com/aokcuoglu/getirbakim/pull/1463), [#1462](https://github.com/aokcuoglu/getirbakim/issues/1462); supersedes #871 and #893).
+
+### Fixed
+- **App tasks hitting the V8 heap cap:**
+  - The cause: on Node 22, every cached Promise (`staleCache`, `ttlCache`, `sharedLoads`) kept the AsyncLocalStorage context of the request that created it alive, including React's per-request `cache()` results. Settled cache entries now hold plain values.
+  - Weights are approximate bytes with a cap per cache, under a process-wide LRU budget `STALE_CACHE_MAX_MB` (default 256, `0` off).
+  - In a local crawl with Node 22 behaviour, `heapUsed` went from 694–886 MB to 170–285 MB per round, at the same hit rate of about 70–75 %.
+  - Every in-process cache is named. The `Memory:` line now ends `caches=<entries>/<MB>MB hit=…% evicted=… top=<name>:<entries>:<MB>MB,… topEntries=…`, so prod logs show which cache grows ([#1465](https://github.com/aokcuoglu/getirbakim/pull/1465), [#1461](https://github.com/aokcuoglu/getirbakim/issues/1461)).
+- **Admin image preview:** the product page previews the automatic image of an unlisted supplier row ([#1445](https://github.com/aokcuoglu/getirbakim/pull/1445), [#1442](https://github.com/aokcuoglu/getirbakim/issues/1442)).
+
+### Changed
+- **Node 24 app image:**
+  - Both image stages run `node:24-bookworm-slim`, whose AsyncLocalStorage is AsyncContextFrame-based. The app stage sets `MALLOC_ARENA_MAX=2`. CI tests on Node 24.
+  - Docker crawl, 2 GB / 1 vCPU: heap about 35 % lower than on Node 22, and native memory about 400 → 220 MB with the arena cap ([#1464](https://github.com/aokcuoglu/getirbakim/pull/1464), [#1278](https://github.com/aokcuoglu/getirbakim/issues/1278)).
+- **Deep and stock-filtered listings:**
+  - Price orders of large and stock-filtered listings are stored (`storefront_listing_price_orders.filtered`). A filtered deep page races the stored order for 250 ms before reading live. `LISTING_PRICE_ORDER_FILTERED=0` rolls this back ([#1432](https://github.com/aokcuoglu/getirbakim/pull/1432), [#1390](https://github.com/aokcuoglu/getirbakim/issues/1390)).
+  - `commerce_catalog` is split into `commerce_supplier_catalog` and a `WITH`-free `commerce_catalog`, so price orders skip the columns they don't use ([#1437](https://github.com/aokcuoglu/getirbakim/pull/1437), [#1424](https://github.com/aokcuoglu/getirbakim/issues/1424)).
+  - Live deep price pages order on the lean columns first, then read the cards by id ([#1449](https://github.com/aokcuoglu/getirbakim/pull/1449), [#1430](https://github.com/aokcuoglu/getirbakim/issues/1430)).
+  - A scoped listing reads stock for its own ids instead of the whole stock set (`LISTING_STOCK_SCOPE_MAX_IDS`, `0` rolls back) ([#1454](https://github.com/aokcuoglu/getirbakim/pull/1454), [#1429](https://github.com/aokcuoglu/getirbakim/issues/1429)).
+  - Brand, manufacturer and make-only listings get the same scoped stock filter ([#1460](https://github.com/aokcuoglu/getirbakim/pull/1460), [#1455](https://github.com/aokcuoglu/getirbakim/issues/1455)).
+  - Stock-filtered counts, first-page ids and search orders are served at most `LISTING_STOCK_MAX_SERVE_MS` old (default 60 min, `0` off). Stored deep price orders are exempt ([#1458](https://github.com/aokcuoglu/getirbakim/pull/1458), [#1453](https://github.com/aokcuoglu/getirbakim/issues/1453)).
+- **Search:**
+  - The order of a price-sorted search is cached per process as packed ids: 16 B per id, at most `SEARCH_PRICE_ORDER_MAX_IDS` (1M, about 16 MB). `SEARCH_PRICE_ORDER=0` rolls back ([#1446](https://github.com/aokcuoglu/getirbakim/pull/1446), [#1425](https://github.com/aokcuoglu/getirbakim/issues/1425)).
+  - The same cache holds the ranked order of relevance-sorted filtered searches and newest searches ([#1451](https://github.com/aokcuoglu/getirbakim/pull/1451), [#1440](https://github.com/aokcuoglu/getirbakim/issues/1440)). It also serves plain relevance pages past page 20 ([#1459](https://github.com/aokcuoglu/getirbakim/pull/1459), [#1447](https://github.com/aokcuoglu/getirbakim/issues/1447)). `SEARCH_RANK_ORDER=0` rolls back both.
+  - The facets of searches scoped by category, make, model or garage vehicle are cached; `SEARCH_FACETS_CACHE=0` rolls back ([#1457](https://github.com/aokcuoglu/getirbakim/pull/1457), [#1441](https://github.com/aokcuoglu/getirbakim/issues/1441)).
+  - `vehicleFitCount` reads the cached search order's total ([#1456](https://github.com/aokcuoglu/getirbakim/pull/1456), [#1450](https://github.com/aokcuoglu/getirbakim/issues/1450)).
+  - A vehicle reading's fits come from the search hits. Broad readings such as "dizel", "benzin" or "tdi" are read last. `VEHICLE_SEARCH_MAX_DEFERRED_HITS` (25000, `0` off) is the guard ([#1436](https://github.com/aokcuoglu/getirbakim/pull/1436), [#1407](https://github.com/aokcuoglu/getirbakim/issues/1407)).
+  - A test guards rank parity between `summarizeSearch` and `catalogRank` ([#1452](https://github.com/aokcuoglu/getirbakim/pull/1452), [#1448](https://github.com/aokcuoglu/getirbakim/issues/1448)).
+- **Agent harness:** the `/ship` skill is now `/deliver`, and Opus is an escalation for the developer agent ([#1444](https://github.com/aokcuoglu/getirbakim/pull/1444), [#1439](https://github.com/aokcuoglu/getirbakim/pull/1439)).
+
+### Deploy and operations
+- **`db:setup` (runs in `release-aws`):**
+  - It adds `storefront_listing_price_orders.filtered` (lock about 0.1 s locally).
+  - It replaces the `commerce_catalog`, `commerce_supplier_catalog` and `storefront_catalog` views. The first setup holds ACCESS EXCLUSIVE on them for about 1.6 s locally; catalog reads wait for that long.
+  - Check the "Schema transaction … slowest" line in the release log. If it goes past a few seconds, move the view swap into its own short transaction.
+- **App image:** Node 24 with `MALLOC_ARENA_MAX=2`.
+- **App task:** it stays at 4 GB with `--max-old-space-size=2560` (getirbakim-infra #36, deployed 2026-11-27). Revisit 2 GB after a few days of `Memory:` lines.
+- **New optional env vars:** `SEARCH_PRICE_ORDER`, `SEARCH_RANK_ORDER`, `SEARCH_FACETS_CACHE`, `LISTING_STOCK_MAX_SERVE_MS`, `STALE_CACHE_MAX_MB`. `0` rolls the matching change back.
+- **Log query change:** the `caches=` token on the `Memory:` line changed from `<entries>/<ids>` to `<entries>/<MB>MB`. Update any saved Logs Insights query that parses it.
+- **After release:**
+  - In `/getirbakim-production/app`: `heap out of memory` lines per day should be 0, and `heapUsed` on the `Memory:` lines should plateau. Read `top=` and `topEntries=` to see which cache grows.
+  - `boundedQuery slow:` and `boundedQuery timeout:` counts for `catalog.searchOrder` and the listing loads.
+  - `/mesafeli-satis-sozlesmesi` and `/on-bilgilendirme-formu` show the new "Taksit." and "İade." paragraphs.
+- **Owner, after release:** on `/yonetim/fiyatlandirma`, turn installments on, set max 3, and set the 2- and 3-installment rates to 0. The stored default rates are fee rates, so the warning stays until those are 0.
+- **Vehicle oil specs:** unchanged.
+
 ## v0.42.1 — 2026-11-26
 
 Patch release of `dev` since v0.42.0 (3 pull requests). **v0.42.0 was never deployed:** its `release-aws` run was cancelled during the pre-release snapshot, before anything changed. Production mail had moved back from Resend to Amazon SES the same day, and v0.42.0 names Resend in the legal texts. This release names Amazon SES again and adds two upload and search hardening fixes. The v0.42.0 deploy and operations steps below apply to this release. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
