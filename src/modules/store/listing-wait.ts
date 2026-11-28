@@ -19,6 +19,21 @@ export function listingWaitMs(): number {
   return Number.isFinite(value) && value >= 0 ? value : defaultWaitMs;
 }
 
+const defaultStockMaxServeMs = 60 * 60 * 1000;
+/**
+ * The oldest value a stock-filtered listing or search order cache may serve (#1453): LISTING_STOCK_MAX_SERVE_MS (blank or
+ * invalid: 3,600,000, two stock-sync cycles); 0 turns the bound off (undefined). Read per call. Stock syncs do not move the
+ * listing epoch, so without it an idle key serves its order and total once however old, a sold-out card inside an in-stock
+ * listing; with it that visitor waits for the reload, as for a cold key.
+ */
+export function stockMaxServeMs(availability: string | undefined): number | undefined {
+  if (availability !== "in_stock" && availability !== "out_of_stock") return undefined;
+  const setting = process.env.LISTING_STOCK_MAX_SERVE_MS?.trim();
+  const value = setting ? Number(setting) : defaultStockMaxServeMs;
+  const ms = Number.isFinite(value) && value >= 0 ? value : defaultStockMaxServeMs;
+  return ms > 0 ? ms : undefined;
+}
+
 /** Runs the storefront warm-up with the listing waits unbounded (listingWaitMs), whatever it throws. */
 export async function whileWarming<T>(run: () => Promise<T>): Promise<T> {
   state.__storefrontWarmups = (state.__storefrontWarmups ?? 0) + 1;

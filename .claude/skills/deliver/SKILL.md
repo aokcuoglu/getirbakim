@@ -1,6 +1,6 @@
 ---
-name: ship
-description: Orchestrate one getirbakim development end to end — issue → worktree from origin/dev → plan → implement → code + UI review → QA → PR into dev → CI → merge into dev → update the main checkout → clean up. Use for "/ship 489", "/ship <description>", or whenever the user asks to start, build, fix or deliver a development in getirbakim.
+name: deliver
+description: Orchestrate one getirbakim development end to end — issue → worktree from origin/dev → plan → implement → code + UI review → QA → PR into dev → CI → merge into dev → update the main checkout → clean up. Use for "/deliver 489", "/deliver <description>" (not the built-in /ship, which shadows a project skill of that name), or whenever the user asks to start, build, fix or deliver a development in getirbakim.
 argument-hint: <issue number | short description>
 ---
 
@@ -25,7 +25,7 @@ Inside Herdr (`HERDR_ENV=1`) do the same with `herdr worktree create --branch <t
 Call `getirbakim-planner` with the Issue no + `WT` (skip for a small one-file fix). The plan is the developer's brief and the QA route list. If the plan says "too big", open the follow-up Issues now and continue with the first slice.
 
 ## 3. Implement
-Call `getirbakim-developer` with `WT`, the Issue no and the full plan. Default sonnet; pass `model: "opus"` for `db/*.sql` schema changes, auth/payment/order code, supplier-sync core, cross-module refactors, or sonnet work still failing after two review rounds. Read **Checks** (and their SHA) and **Not done** in the report; pass Checks and SHA verbatim to the reviewers and QA in their brief; send a failed check back to the same agent via SendMessage (do not open a new agent).
+Call `getirbakim-developer` with `WT`, the Issue no and the full plan. It runs on sonnet; Opus is an escalation, not a default (an Opus developer run costs ~10× a sonnet one). Pass `model: "opus"` only when (a) the plan alters or drops existing tables/columns or migrates existing data in `db/*.sql` (new functions, indexes or query rewrites do not count), (b) the change touches money or identity flows — payment/TAMI, order totals/refunds, auth/session/password code, or (c) the same sonnet developer failed the same check or review finding twice. Performance/query tuning, UI, SEO/copy, importer/sync tweaks and single-module refactors stay on sonnet. When you pass opus, start the Agent `description` with `opus:` and the one-line reason. Read **Checks** (and their SHA) and **Not done** in the report; pass Checks and SHA verbatim to the reviewers and QA in their brief; send a failed check back to the same agent via SendMessage (do not open a new agent).
 
 ## 4. Review
 For a small UI-only change (≤2 `.tsx`/`.css` files; no `db/`, `src/modules/`, `src/lib/`, `actions.ts`, `route.ts`, auth/payment/sync touch) call only `getirbakim-ui-ux` (`WT` + QA routes). Otherwise, in parallel in one message:

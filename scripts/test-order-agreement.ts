@@ -87,6 +87,12 @@ test("an installment order names the fee and the count; a single payment does no
   assert.doesNotMatch(split, /peşin ödeme/);
 });
 
+test("a no-fee installment order shows no fee row and says vade farksız (#1462)", () => {
+  const noFee = text(buildOrderAgreement({ ...order, installmentCount: 3, installmentFeeKurus: 0 }, lines));
+  assert.doesNotMatch(noFee, /Vade farkı/);
+  assert.ok(noFee.includes("3 taksitle ödeme (vade farksız)"), "no-fee payment line");
+});
+
 function editedSources(): AgreementSources {
   const sources = structuredClone(defaultSources());
   const section = sources["mesafeli-satis-sozlesmesi"].sections.at(-1)!;

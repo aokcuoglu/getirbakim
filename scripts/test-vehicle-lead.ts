@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
+import type { CatalogQuery } from "../src/modules/store/catalog-query";
 
 // The garage vehicle's fits put first on a listing (#884) in an isolated copy of the schema: vehicleLead is the listing's
 // `fits=vehicle` page 1, cut to its limit, with that listing's total and filters. Nothing is written to the shared tables.
@@ -97,4 +99,216 @@ test("the lead keeps the listing's search, brand filter and order", async () => 
 test("a vehicle without fits in the listing has no lead", async () => {
   assert.deepEqual(await catalog.vehicleLead({}, String(CLIO)), { items: [], total: 0 });
   assert.equal((await catalog.vehicleLead({ brand: "ATE" }, String(GOLF))).total, 0);
+});
+
+type Catalog = typeof import("../src/modules/store/catalog");
+let processes = 0;
+/** Another app process: a second copy of the catalog module, with its own process caches, on the same database. */
+const otherProcess = async () => await import(`../src/modules/store/catalog.ts?stock-scope-${++processes}`) as Catalog;
+/** `run` with these environment variables set (undefined: unset), restored afterwards. */
+async function withEnv<T>(values: Record<string, string | undefined>, run: () => Promise<T>) {
+  const saved = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
+  const apply = (next: Record<string, string | undefined>) => {
+    for (const [key, value] of Object.entries(next)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+  apply(values);
+  try {
+    return await run();
+  } finally {
+    apply(saved);
+  }
+}
+/** The text of every statement `run` sends, on any connection. */
+async function sentTexts(run: () => Promise<unknown>) {
+  const texts: string[] = [];
+  const original = pg.Client.prototype.query;
+  pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+    const config = args[0];
+    texts.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
+    return (original as (...rest: unknown[]) => unknown).apply(this, args);
+  } as typeof original;
+  try {
+    await run();
+  } finally {
+    pg.Client.prototype.query = original;
+  }
+  return texts;
+}
+const setStock = (keys: string[], stock: number) => schema.pool.query(
+  "UPDATE supplier_items SET stock_data=jsonb_build_object('stok',$2::int) WHERE id=ANY($1::uuid[])", [keys.map(key => ids[key]), stock]);
+/**
+ * Page 1 of the listing (the `fits=vehicle` one unless `fits` is false) read by a fresh process under
+ * LISTING_STOCK_SCOPE_MAX_IDS=`max`, and the statements it sent.
+ */
+const stockListing = (max: string | undefined, query: CatalogQuery, fits = true) => withEnv({ LISTING_STOCK_SCOPE_MAX_IDS: max }, async () => {
+  const fresh = await otherProcess();
+  let listing: Awaited<ReturnType<Catalog["browseProducts"]>> | undefined;
+  const texts = await sentTexts(async () => { listing = await fresh.browseProducts({ ...query, ...(fits ? { fits: "vehicle" as const } : {}) }, { vehicleTypeId: String(GOLF) }); });
+  assert.ok(listing);
+  return { listed: { ids: idsOf(listing.items), total: listing.total, pages: listing.pages }, texts };
+});
+/** A statement over the priced view (storefront_catalog), not the lean entries or the availability view. */
+const priced = (text: string) => /FROM storefront_catalog WHERE/.test(text);
+/** The scoped stock clause (stockClause): a make's own clause is an `ANY(ARRAY(` too, so the guards look for this. */
+const scopedMarker = "catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED";
+
+// A stock filter on the garage vehicle's fits reads those ids' stock only (#1429, stock-filter.ts). Its oracle is the
+// whole stock set's clause (LISTING_STOCK_SCOPE_MAX_IDS=0): the same cards, order and totals in every order.
+test("a stock filter on the vehicle's fits lists the same cards scoped and over the whole stock set (#1429)", async () => {
+  await setStock(["trw2", "febi2"], 0);
+  try {
+    const inStock = ["bosch2", "mann1", "trw1", "febi1", "bosch1"].map(key => ids[key]), outOfStock = [ids.febi2, ids.trw2];
+    const expected = {
+      in_stock: { "price-asc": inStock, "price-desc": [...inStock].reverse() },
+      out_of_stock: { "price-asc": outOfStock, "price-desc": [...outOfStock].reverse() },
+    };
+    for (const availability of ["in_stock", "out_of_stock"] as const) {
+      for (const sort of [undefined, "price-asc", "price-desc"] as const) {
+        const label = `${availability} ${sort ?? "newest"}`;
+        const scoped = await stockListing(undefined, { availability, sort }), whole = await stockListing("0", { availability, sort });
+        assert.deepEqual(scoped.listed, whole.listed, label);
+        if (sort) assert.deepEqual(scoped.listed.ids, expected[availability][sort], label);
+        else assert.deepEqual(new Set(scoped.listed.ids), new Set(expected[availability]["price-asc"]), label);
+        assert.equal(scoped.listed.total, availability === "in_stock" ? 5 : 2, label);
+        // The default reads the fits' stock as one InitPlan array; 0 sends the whole set's clause again.
+        assert.ok(scoped.texts.some(text => text.includes(scopedMarker) && text.includes("commerce_item_availability")), label);
+        assert.ok(!scoped.texts.some(text => text.includes("commerce_out_of_stock_ids") || text.includes("catalog.id IN (SELECT")), label);
+        assert.ok(whole.texts.some(text => text.includes(availability === "in_stock" ? "catalog.id IN (SELECT COALESCE(o.primary_id,a.id)" : "commerce_out_of_stock_ids(")), label);
+        assert.ok(!whole.texts.some(text => text.includes("=ANY(ARRAY(")), label);
+        // A statement pricing the view never reads the scoped clause: a price order reads the listing's ids first (listedIds).
+        assert.ok(!scoped.texts.some(text => priced(text) && text.includes("ANY(ARRAY(")), label);
+        if (sort) assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes(scopedMarker)), label);
+      }
+    }
+  } finally {
+    await setStock(fittingKeys, 2);
+  }
+});
+
+// A price-sorted search with a stock filter builds its cached order (searchOrder, #1425): the search hits and the scoped
+// stock clause are two id sets, so the order prices the listing's ids read first (listedIds), never the clause (#1429).
+test("a price-sorted search with a stock filter never prices the view through the scoped clause (#1429)", async () => {
+  await setStock(["trw2", "febi2"], 0);
+  try {
+    // "fren balatası": five fitting pads and ATE's, which does not fit; TRW's rear pad is sold out.
+    const inStock = ["bosch2", "ate1", "trw1", "febi1", "bosch1"].map(key => ids[key]);
+    const expected: Record<string, Record<"price-asc" | "price-desc", string[]>> = {
+      "in_stock false": { "price-asc": inStock, "price-desc": [...inStock].reverse() },
+      "in_stock true": { "price-asc": inStock.filter(id => id !== ids.ate1), "price-desc": inStock.filter(id => id !== ids.ate1).reverse() },
+      "out_of_stock false": { "price-asc": [ids.trw2], "price-desc": [ids.trw2] },
+      "out_of_stock true": { "price-asc": [ids.trw2], "price-desc": [ids.trw2] },
+    };
+    for (const fits of [false, true]) {
+      for (const availability of ["in_stock", "out_of_stock"] as const) {
+        for (const sort of ["price-asc", "price-desc"] as const) {
+          const label = `${availability} ${sort} fits=${fits}`, query = { q: "fren balatası", availability, sort };
+          const scoped = await stockListing(undefined, query, fits), whole = await stockListing("0", query, fits);
+          assert.deepEqual(scoped.listed, whole.listed, label);
+          assert.deepEqual(scoped.listed.ids, expected[`${availability} ${fits}`][sort], label);
+          // The search order path ran (its build statement), with the scoped clause and the listing's ids read first.
+          assert.ok(scoped.texts.some(text => text.includes("SELECT ids::text AS ids FROM ordered")), label);
+          assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes(scopedMarker)), label);
+          assert.ok(!scoped.texts.some(text => priced(text) && text.includes("ANY(ARRAY(")), label);
+          assert.ok(!whole.texts.some(text => text.includes("=ANY(ARRAY(")), label);
+        }
+      }
+    }
+  } finally {
+    await setStock(fittingKeys, 2);
+  }
+});
+
+// A make-only or brand listing binds no JS id array: a stock filter reads its listed ids first (the stock scope, cached)
+// and then those ids' stock only (#1455). The trap guard: a brand's clause is not an id set, so the scoped clause can be
+// the listing's only one, and catalogFilter counts it as two; a price order then reads the listing's ids first
+// (listedIds) and never prices the view through the scoped clause (over 120 s at 200k ids).
+test("a make-only or brand listing's stock filter reads its scope and never prices the view through it (#1455)", async () => {
+  await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 1,unnest($1::uuid[])", [fittingKeys.map(key => ids[key])]);
+  await setStock(["trw2", "febi2"], 0);
+  try {
+    const inStock = ["bosch2", "mann1", "trw1", "febi1", "bosch1"].map(key => ids[key]);
+    const expected: Record<string, Record<"in_stock" | "out_of_stock", string[]>> = {
+      "make volkswagen": { in_stock: inStock, out_of_stock: [ids.febi2, ids.trw2] },
+      "brand TRW": { in_stock: [ids.trw1], out_of_stock: [ids.trw2] },
+      "brands TRW+FEBI": { in_stock: [ids.trw1, ids.febi1], out_of_stock: [ids.febi2, ids.trw2] },
+    };
+    const queries: Record<string, CatalogQuery> = { "make volkswagen": { make: "volkswagen" }, "brand TRW": { brand: "TRW" }, "brands TRW+FEBI": { brands: '["TRW","FEBI"]' } };
+    for (const [name, base] of Object.entries(queries)) {
+      for (const availability of ["in_stock", "out_of_stock"] as const) {
+        for (const sort of [undefined, "price-asc", "price-desc"] as const) {
+          const label = `${name} ${availability} ${sort ?? "newest"}`, query = { ...base, availability, sort };
+          const scoped = await stockListing(undefined, query, false), whole = await stockListing("0", query, false);
+          assert.deepEqual(scoped.listed, whole.listed, label);
+          const cheapestFirst = expected[name][availability];
+          if (sort === "price-asc") assert.deepEqual(scoped.listed.ids, cheapestFirst, label);
+          else if (sort === "price-desc") assert.deepEqual(scoped.listed.ids, [...cheapestFirst].reverse(), label);
+          else assert.deepEqual(new Set(scoped.listed.ids), new Set(cheapestFirst), label);
+          // The default reads the scope's ids first and binds them to the scoped clause; 0 sends the whole set's clause.
+          assert.ok(scoped.texts.some(text => text.includes("array_agg(id)::text") && text.includes(") scope")), label);
+          assert.ok(scoped.texts.some(text => text.includes(scopedMarker)), label);
+          assert.ok(!scoped.texts.some(text => text.includes("commerce_out_of_stock_ids(") || text.includes("catalog.id IN (SELECT")), label);
+          assert.ok(whole.texts.some(text => text.includes(availability === "in_stock" ? "catalog.id IN (SELECT COALESCE(o.primary_id,a.id)" : "commerce_out_of_stock_ids(")), label);
+          assert.ok(!whole.texts.some(text => text.includes("scope AS MATERIALIZED")), label);
+          // No statement pricing the view reads the scoped clause; a price order reads the listing's ids first.
+          assert.ok(!scoped.texts.some(text => priced(text) && text.includes("scope AS MATERIALIZED")), label);
+          if (sort) assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes(scopedMarker)), label);
+        }
+      }
+    }
+  } finally {
+    await setStock(fittingKeys, 2);
+    await schema.pool.query("DELETE FROM storefront_make_fits WHERE brand_id=1");
+  }
+});
+
+// Past the first 20 pages a stock-filtered listing slices its stored whole price order (#1390), built by pricedScope like
+// the first pages: with a prefetched scope (#1455) the build too prices the listing's ids read first, never the scoped
+// clause. 540 rows of one brand, 530 in stock: page 21 of the in-stock listing is a stored order's slice.
+test("a brand listing's deep stock-filtered price page and its stored order never price the view through the scope (#1455)", async () => {
+  const company = storefrontCompanies()[0];
+  await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    SELECT 'basbug',$1,'G','MRK','DPT '||n,jsonb_build_object('uk','DEEPTEST','ac','DEEPTEST PARCA '||n,'ac2','','dc','TL'),jsonb_build_object('nf',100+n%97),
+     jsonb_build_object('stok',CASE WHEN n<=10 THEN 0 ELSE 2 END),1,1,1,false,'present',now()-interval '10 days',now()-make_interval(mins=>n),now()-make_interval(mins=>n)
+    FROM generate_series(1,540) n`, [company]);
+  try {
+    // The page waits for its order's build (#1390's bounded wait raised), so the slice is what it shows.
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, async () => {
+      for (const sort of ["price-asc", "price-desc"] as const) {
+        const label = `DEEPTEST in_stock ${sort} page 21`, query: CatalogQuery = { brand: "DEEPTEST", availability: "in_stock", sort, page: "21" };
+        const scoped = await stockListing(undefined, query, false), whole = await stockListing("0", query, false);
+        assert.deepEqual(scoped.listed, whole.listed, label);
+        assert.deepEqual([scoped.listed.total, scoped.listed.pages, scoped.listed.ids.length], [530, 23, 24], label);
+        assert.ok(scoped.texts.some(text => text.includes("INSERT INTO storefront_listing_price_orders")), `${label}: the order was built`);
+        assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes(scopedMarker)), label);
+        assert.ok(!scoped.texts.some(text => priced(text) && text.includes("scope AS MATERIALIZED")), label);
+        assert.ok(!whole.texts.some(text => text.includes("scope AS MATERIALIZED")), label);
+      }
+    });
+  } finally {
+    await schema.pool.query("DELETE FROM storefront_listing_price_orders");
+    await schema.pool.query("DELETE FROM supplier_items WHERE code LIKE 'DPT %'");
+  }
+});
+
+// No stored stock set: a fresh process lists a stock change at once, without a sync or an epoch bump (#1429). A running
+// process's listing follows it with its count and page caches (10 minutes), as before.
+test("a scoped stock filter reads stock live (#1429)", async () => {
+  const listed = async (availability: "in_stock" | "out_of_stock") => (await stockListing(undefined, { availability })).listed;
+  try {
+    assert.equal((await listed("in_stock")).total, 7);
+    await setStock(["mann1"], 0);
+    const [inStock, outOfStock] = [await listed("in_stock"), await listed("out_of_stock")];
+    assert.equal(inStock.total, 6);
+    assert.ok(!inStock.ids.includes(ids.mann1));
+    assert.deepEqual(outOfStock.ids, [ids.mann1]);
+    await setStock(["mann1"], 3);
+    assert.equal((await listed("in_stock")).total, 7);
+    assert.equal((await listed("out_of_stock")).total, 0);
+  } finally {
+    await setStock(fittingKeys, 2);
+  }
 });

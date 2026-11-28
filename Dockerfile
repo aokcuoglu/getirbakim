@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS dependencies
+FROM node:24-bookworm-slim AS dependencies
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
@@ -21,9 +21,16 @@ ADD --checksum=sha256:90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34e
 USER node
 CMD ["node", "--import", "tsx", "scripts/setup.ts"]
 
-FROM node:22-bookworm-slim AS app
+# Node 24: AsyncLocalStorage runs on AsyncContextFrame by default. On Node 22 (async_hooks-based ALS) every promise kept
+# in an in-process cache pinned its request's context (Next/React request stores), and prod tasks hit the V8 heap cap
+# every 1-4 h (#1278, #1461). Docker crawl at 2 GB / 1 vCPU: heapUsed ~350 MB median on Node 22 -> ~230 MB on Node 24.
+FROM node:24-bookworm-slim AS app
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+# glibc opens up to 8 malloc arenas per core and fragments native memory; two are enough for one event loop plus the
+# libuv/sharp pool. Docker crawl at 2 GB / 1 vCPU on the Node 22 image (#1278): native memory at the end of 6 rounds
+# ~400 MB -> ~220 MB.
+ENV MALLOC_ARENA_MAX=2
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./static-build
 COPY --from=builder --chown=node:node /app/public ./public

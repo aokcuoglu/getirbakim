@@ -5,7 +5,7 @@
 ## Hat
 
 ```
-/ship <issue>                 (ana oturum = orkestratör)
+/deliver <issue>                 (ana oturum = orkestratör)
    │
    ├─ 1 worktree               ../getirbakim-<N>  (dal <tür>/<N>-<konu>, origin/dev'den)
    ├─ 2 getirbakim-planner     salt okur → plan (dosyalar, yeniden kullanım, SQL/yetki etkisi, testler, QA rotaları)
@@ -32,13 +32,13 @@ Orkestratör ürün kodu yazmaz; ajanlara brief verir, bulguları taşır, kapsa
 | `getirbakim-qa` | Kontroller + tarayıcı turu (masaüstü/mobil, admin/servis/ziyaretçi) | sonnet | hayır | worktree, rotalar, roller, kabul kriterleri |
 | `getirbakim-triage` | Backlog: her açık Issue'yu kanıtla sınıflar, paralel dalga önerir | sonnet | hayır | — (`/backlog`) |
 
-**Model seçimi:** yargısı sonraki her adımı belirleyen planlayıcı ve veri kaybı/yetki açığının tek kapısı olan inceleyici fable (orkestratörden farklı model → bağımsız ikinci göz; az token harcadıkları için ayrı Fable kotası burada değerlendirilir); mekanik ağırlıklı geliştirme, UI denetimi, QA ve triage sonnet. Orkestratör `getirbakim-developer`'a `model: "opus"` geçer: `db/*.sql` şema değişikliği, yetki/ödeme/sipariş, tedarikçi sync çekirdeği, modüller arası refactor ya da iki inceleme döngüsünde kalan sonnet çalışması.
+**Model seçimi:** yargısı sonraki her adımı belirleyen planlayıcı ve veri kaybı/yetki açığının tek kapısı olan inceleyici fable (orkestratörden farklı model → bağımsız ikinci göz; az token harcadıkları için ayrı Fable kotası burada değerlendirilir); mekanik ağırlıklı geliştirme, UI denetimi, QA ve triage sonnet. Developer için Opus varsayılan değil, yükseltmedir (Opus developer koşusu sonnet'in ~10 katı; #1438 öncesi koşuların ~%60'ı opus'a geçiyordu). Orkestratör `getirbakim-developer`'a `model: "opus"` yalnız şu durumlarda geçer: (a) `db/*.sql`'de mevcut tablo/sütunu değiştiren ya da silen veya mevcut veriyi taşıyan değişiklik (yeni fonksiyon, indeks, sorgu yeniden yazımı sayılmaz), (b) para/kimlik akışı — ödeme/TAMI, sipariş tutarı/iade, yetki/oturum/şifre kodu, (c) aynı sonnet developer'ın aynı kontrolde ya da inceleme bulgusunda iki kez kalması. Performans/sorgu ayarı, UI, SEO/metin, importer/sync ayarı ve tek modül refactor sonnet'te kalır. Opus geçilince Agent `description`'ı `opus:` + tek satır gerekçeyle başlar (ölçümde izlenebilsin).
 
 ## Skill'ler (`.claude/skills/`)
 
 | Skill | Ne yapar |
 |-------|----------|
-| `/ship <N veya açıklama>` | Hattın tamamı; `dev`'e merge + temizlik dahil |
+| `/deliver <N veya açıklama>` | Hattın tamamı; `dev`'e merge + temizlik dahil |
 | `/issue <açıklama>` | Kısa kod taramasıyla etiketli, kabul kriterli Issue |
 | `/qa [worktree\|N] [rotalar]` | Yalnız QA aşaması |
 | `/design-check [--changed\|yollar]` | admin-ui-lint + `getirbakim-ui-ux` incelemesi |

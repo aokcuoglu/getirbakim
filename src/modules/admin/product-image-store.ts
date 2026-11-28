@@ -12,7 +12,11 @@ export type ProductImages = {
   images: { id: string; src: string; width: number; height: number; file_name: string; carried: boolean }[];
   hideAutomatic: boolean;
   /** Enrichment images the product's store rows show without uploads (one per media object). */
-  automatic: { src: string; mediaId: string; width: number; height: number; supplier: string; inGallery: boolean }[];
+  automatic: {
+    src: string; mediaId: string; width: number; height: number; supplier: string; inGallery: boolean;
+    /** False: the row is not in the supplier's current list (pending_missing/inactive); previewed through the admin route, the store does not show it. */
+    inStore: boolean;
+  }[];
 };
 export type ProductImageResult = { ok: true } | {
   ok: false; reason: "not-found" | "merged" | "limit" | "duplicate" | "stale" | "image";
@@ -33,18 +37,20 @@ export function imageHistoryValue(field: string, value: string | null): string |
 }
 
 const media = (id: string) => `/api/product-media/${id}`;
+const preview = (id: string) => `/api/admin/product-media/${id}`;
 
 /** The enrichment images the product's store rows serve; `mediaId` narrows it to that one (authorization for a conversion). */
 async function automaticImages(database: Pick<Pool, "query">, productId: string, mediaId?: string) {
-  return (await database.query<{ image_id: string; width: number; height: number; supplier: string }>(
-    // The rows /api/product-media serves: present storefront rows with a stored enrichment image.
+  return (await database.query<{ image_id: string; width: number; height: number; supplier: string; in_store: boolean }>(
+    // Storefront rows with a stored enrichment image; `in_store` marks the present ones /api/product-media serves (a present row wins per image).
     `SELECT DISTINCT ON (e.image_id) e.image_id::text,COALESCE((e.payload->>'imageWidth')::int,480) AS width,
-      COALESCE((e.payload->>'imageHeight')::int,480) AS height,i.supplier
+      COALESCE((e.payload->>'imageHeight')::int,480) AS height,i.supplier,
+      (i.presence='present') AS in_store
      FROM product_sources s JOIN storefront_enrichments e ON e.supplier_item_id=s.supplier_item_id
      JOIN supplier_items i ON i.id=s.supplier_item_id
-     WHERE s.product_id=$1 AND e.image_id IS NOT NULL AND i.presence='present' AND i.company=ANY($2::text[])
+     WHERE s.product_id=$1 AND e.image_id IS NOT NULL AND i.company=ANY($2::text[])
        AND ($3::uuid IS NULL OR e.image_id=$3::uuid)
-     ORDER BY e.image_id,storefront_supplier_rank(i.supplier),i.code`, [productId, storefrontCompanies(), mediaId ?? null])).rows;
+     ORDER BY e.image_id,(i.presence='present') DESC,storefront_supplier_rank(i.supplier),i.code`, [productId, storefrontCompanies(), mediaId ?? null])).rows;
 }
 
 export async function loadProductImages(database: Pick<Pool, "query">, productId: string): Promise<ProductImages> {
@@ -59,7 +65,9 @@ export async function loadProductImages(database: Pick<Pool, "query">, productId
   return {
     images: images.rows.map(row => ({ id: row.id, src: media(row.media_id), width: row.width, height: row.height, file_name: row.file_name, carried: row.carried })),
     hideAutomatic: Boolean(settings.rows[0]?.hide_automatic),
-    automatic: automatic.map(row => ({ src: media(row.image_id), mediaId: row.image_id, width: row.width, height: row.height, supplier: row.supplier, inGallery: uploaded.has(row.image_id) })),
+    automatic: automatic.map(row => ({ src: row.in_store ? media(row.image_id) : preview(row.image_id), mediaId: row.image_id, width: row.width, height: row.height,
+      supplier: row.supplier, inGallery: uploaded.has(row.image_id), inStore: row.in_store }))
+      .sort((a, b) => Number(b.inStore) - Number(a.inStore)),
   };
 }
 
@@ -137,9 +145,10 @@ export async function addProductImage(database: Database, productId: string, fil
 export async function convertAutomaticImage(database: Pick<Pool, "connect">, productId: string, mediaId: string, adminId: string,
   supplierNames: Record<string, string> = {}) {
   return change(database, productId, async client => {
-    // Under the product lock, and the authorization boundary: only this product's own automatic images convert.
+    // Under the product lock, and the authorization boundary: only this product's own automatic images convert, and only
+    // those in the store: a converted upload is served publicly, which would publish a non-present row's image.
     const [automatic] = await automaticImages(client, productId, mediaId);
-    if (!automatic) return { ok: false, reason: "stale" };
+    if (!automatic?.in_store) return { ok: false, reason: "stale" };
     const stats = (await client.query<{ images: number; next: number }>(`SELECT count(*)::int AS images,COALESCE(max(position)+1,0)::int AS next
       FROM product_override_images WHERE product_id=$1`, [productId])).rows[0];
     if (stats.images >= productImageLimits.maxImages) return { ok: false, reason: "limit" };

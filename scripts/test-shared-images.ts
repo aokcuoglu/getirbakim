@@ -145,6 +145,7 @@ test("the placeholder status tells in-use, cleaned and absent entries apart in l
 describe("blocking a shared image", () => {
   let blocks: typeof import("../src/modules/admin/shared-image-blocks");
   let images: typeof import("../src/modules/store/product-images");
+  let preview: typeof import("../src/modules/admin/product-media-preview");
   let adminRoute: typeof import("../src/app/api/admin/product-media/[id]/route");
   let publicRoute: typeof import("../src/app/api/product-media/[id]/route");
   let admin: string;
@@ -184,7 +185,8 @@ describe("blocking a shared image", () => {
         return { Body: { transformToWebStream: () => new Blob(["x"]).stream() } };
       } }),
     } });
-    [blocks, images, adminRoute, publicRoute] = await Promise.all([import("../src/modules/admin/shared-image-blocks"), import("../src/modules/store/product-images"),
+    [blocks, images, preview, adminRoute, publicRoute] = await Promise.all([import("../src/modules/admin/shared-image-blocks"), import("../src/modules/store/product-images"),
+      import("../src/modules/admin/product-media-preview"),
       import("../src/app/api/admin/product-media/[id]/route"), import("../src/app/api/product-media/[id]/route")]);
   });
 
@@ -238,13 +240,13 @@ describe("blocking a shared image", () => {
     assert.equal((await get(publicRoute, media.x)).status, 404);
   });
 
-  test("the admin preview route answers only an admin, only for blocked media, and is never cached", async () => {
+  test("the admin preview route answers only an admin, only for blocked or non-present media, and is never cached", async () => {
     account = null;
     const refused = await get(adminRoute, media.x);
     assert.deepEqual([refused.status, refused.headers.get("Cache-Control"), refused.headers.get("X-Content-Type-Options")], [403, "private, no-store", "nosniff"]);
     account = { id: admin };
     try {
-      const missing = await get(adminRoute, media.a);
+      const missing = await get(adminRoute, media.d);
       assert.deepEqual([missing.status, missing.headers.get("Cache-Control")], [404, "private, no-store"]);
       assert.equal((await get(adminRoute, "not-a-uuid")).status, 404);
       const shown = await get(adminRoute, media.x);
@@ -255,6 +257,34 @@ describe("blocking a shared image", () => {
       const failed = await get(adminRoute, media.x);
       assert.deepEqual([failed.status, failed.headers.get("Retry-After"), failed.headers.get("Cache-Control")], [503, "30", "private, no-store"]);
     } finally { account = null; storageFails = false; }
+  });
+
+  test("a non-present storefront row's automatic image is previewed by an admin, never served publicly (#1442)", async () => {
+    // Own fixtures: an inactive row of a storefront company and an inactive row of a company outside the storefront.
+    await image("p", "https://www.trodo.com/p.webp");
+    await image("q", "https://www.trodo.com/q.webp");
+    await item("p1", { presence: "inactive" });
+    await item("q1", { presence: "inactive", company: "OTHER" });
+    await schema.pool.query("SELECT refresh_product_matches()");
+    await enrich("p1", "p", "S1");
+    await enrich("q1", "q", "S2");
+    for (const key of ["p1", "q1"]) await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,$2,'FEBI','complete')`, [ids[key], codeOf(key)]);
+    await sync();
+    const unlisted = (id: string, scope = companies) => preview.unlistedAutomaticMedia(schema.pool, id, scope);
+    assert.ok(await unlisted(media.p));
+    assert.deepEqual([(await unlisted(media.p))?.object_key, (await unlisted(media.p))?.content_type], ["products/p.webp", "image/webp"]);
+    for (const none of [media.c, media.up, media.d, media.q, randomUUID()]) assert.equal(await unlisted(none), undefined, none);
+    assert.equal(await unlisted(media.p, ["OTHER"]), undefined);
+    assert.equal(await images.servableProductMedia(media.p, companies), undefined);
+    account = null;
+    assert.equal((await get(adminRoute, media.p)).status, 403);
+    assert.equal((await get(publicRoute, media.p)).status, 404);
+    account = { id: admin };
+    try {
+      const shown = await get(adminRoute, media.p);
+      assert.deepEqual([shown.status, shown.headers.get("Cache-Control")], [200, "private, no-store"]);
+      assert.equal((await get(adminRoute, media.q)).status, 404);
+    } finally { account = null; }
   });
 
   test("the media route stops serving a blocked image unless an admin also uploaded it", async () => {

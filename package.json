@@ -1,6 +1,6 @@
 {
   "name": "getirbakim",
-  "version": "0.42.1",
+  "version": "0.43.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -89,6 +89,7 @@
     "test:merchant-feed": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-merchant-feed.ts",
     "seo:sitemap-timings": "node --env-file=.env.local --conditions=react-server --import tsx scripts/sitemap-model-timings.ts",
     "catalog:listing-timings": "node --env-file=.env.local --conditions=react-server --import tsx scripts/listing-summary-timings.ts",
+    "catalog:stock-scope-timings": "node --env-file=.env.local --conditions=react-server --import tsx scripts/stock-scope-timings.ts",
     "seo:indexnow": "node --env-file=.env.local --conditions=react-server --import tsx scripts/indexnow.ts",
     "seo:feed": "node --env-file=.env.local --conditions=react-server --import tsx scripts/merchant-feed.ts",
     "test:restock": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-restock.ts",
@@ -105,6 +106,9 @@
     "test:listing-summary": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-summary.ts",
     "test:listing-price-order": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-price-order.ts",
     "test:listing-fits-epoch": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-fits-epoch.ts",
+    "test:live-price-page": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-live-price-page.ts",
+    "test:search-rank-parity": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-search-rank-parity.ts",
+    "test:search-price-order": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-search-price-order.ts",
     "test:brand-logos": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-brand-logos.ts",
     "test:session-cookie": "node --import tsx --test scripts/test-session-cookie.ts",
     "test:product-paths": "node --import tsx --test scripts/test-product-paths.ts",

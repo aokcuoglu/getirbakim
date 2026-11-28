@@ -6,7 +6,7 @@ import { siteUrl } from "@/lib/site";
 import { cancelLockedOrder } from "@/modules/store/order-cancel";
 import { money } from "@/modules/store/money";
 import { queueOrderConfirmation } from "@/modules/store/order-email";
-import { installmentTotal } from "./installment-plan";
+import { installmentCountIsFeeFree, installmentTotal } from "./installment-plan";
 import { installmentSettings } from "./installment-settings";
 import {
   createHostedToken, buildHostedPaymentUrl, queryPaymentByOrderId, verifiedPaymentSuccess, verifySecurityHash,
@@ -267,6 +267,9 @@ async function installmentNote(client: PoolClient, order: { total_kurus: string;
   const chosen = order.installment_count;
   // An absent or malformed count (null, 0, NaN, fractional) says nothing about the installments: no note.
   if (actual === null || !Number.isInteger(actual) || actual < 1 || actual === chosen) return null;
+  // #1462: no note when the chosen option had no fee and the paid count has none either; judged by the settings at
+  // payment time. A fee option paid with any other count, even a single payment, still notes (a refund may be owed).
+  if (installmentCountIsFeeFree(await installmentSettings(client), { totalKurus: Number(order.total_kurus), feeKurus: Number(order.installment_fee_kurus) }, actual)) return null;
   if (actual > chosen) {
     return `TAMI'de ${actual} taksitle ödendi (${providerOrderId}); ${chosen > 1 ? `siparişte ${chosen} taksit seçilmişti, ` : ""}taksit komisyon farkı işyerine yansır.`;
   }

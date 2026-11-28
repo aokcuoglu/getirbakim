@@ -258,6 +258,12 @@ test("shipping, discount, installments, a separate corporate invoice and the not
   assert.ok(html.includes("Vade farkı (3 taksit)"));
 });
 
+test("a no-fee installment order shows no fee row (#1462)", () => {
+  const { text, html } = build({ installment_count: 3, installment_fee_kurus: "0" });
+  assert.doesNotMatch(text, /Vade farkı/);
+  assert.doesNotMatch(html, /Vade farkı/);
+});
+
 test("customer text is escaped in the HTML", () => {
   const attack = "<script>alert(1)</script>";
   const { html, text } = email.buildOrderConfirmation({

@@ -1,8 +1,9 @@
-import { CircleCheck, CircleMinus, CreditCard } from "lucide-react";
+import { CircleCheck, CircleMinus, CreditCard, TriangleAlert } from "lucide-react";
 import { saveInstallments } from "@/modules/admin/commerce-actions";
-import { INSTALLMENT_COUNTS, installmentTotal, type InstallmentSettings } from "@/modules/payments/installment-plan";
+import { INSTALLMENT_COUNTS, NO_FEE_LABEL, installmentTotal, type InstallmentSettings } from "@/modules/payments/installment-plan";
 import { money } from "@/modules/store/money";
 import { SubmitButton } from "@/components/admin/submit-button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -16,16 +17,19 @@ const PREVIEW_KURUS = 100000;
 
 /** Installment settings (#886) on /yonetim/fiyatlandirma; the preview uses the saved rates. */
 export function InstallmentSettingsCard({ settings }: { settings: InstallmentSettings }) {
+  const feeOffered = settings.enabled && INSTALLMENT_COUNTS.some(count => count <= settings.max && settings.ratesBp[count] !== undefined
+    && installmentTotal(PREVIEW_KURUS, settings.singleRateBp, settings.ratesBp[count]) > PREVIEW_KURUS);
   return <form action={saveInstallments}>
     <Card id="taksit-ayarlari" role="region" aria-labelledby="installments-title">
       <CardHeader>
         <CardTitle><h2 id="installments-title" className="flex items-center gap-2"><CreditCard className="size-4" aria-hidden="true"/>Taksit ve vade farkı</h2></CardTitle>
-        <CardDescription>Müşteri toplamı = tek çekim fiyatı × (1 − tek çekim oranı) / (1 − taksit oranı). Tutar TAMI ortak ödeme sayfasında tahsil edilir.</CardDescription>
+        <CardDescription>Müşteri toplamı = tek çekim fiyatı × (1 − tek çekim oranı) / (1 − taksit oranı). Taksit oranı 0 ise müşteriden vade farkı alınmaz ve taksit “vade farksız” gösterilir; TAMI komisyonunu işyeri öder. Tutar TAMI ortak ödeme sayfasında tahsil edilir.</CardDescription>
         <CardAction>{settings.enabled
           ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Taksit açık</Badge>
           : <Badge variant="secondary"><CircleMinus data-icon="inline-start" aria-hidden="true"/>Taksit kapalı</Badge>}</CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
+        {feeOffered && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>Sözleşme metinleri taksiti vade farksız anlatıyor. Vade farkı olan bir taksit seçeneği açıksa yasal metni güncellemeden kaydetmeyin.</AlertDescription></Alert>}
         <FieldGroup className="grid gap-6 md:grid-cols-2">
           <Field orientation="horizontal" className="md:col-span-2">
             <Switch id="installments-enabled" name="enabled" defaultChecked={settings.enabled}/>
@@ -46,7 +50,7 @@ export function InstallmentSettingsCard({ settings }: { settings: InstallmentSet
           <Field>
             <FieldLabel htmlFor="installments-single-rate">Tek çekim oranı (%)</FieldLabel>
             <Input id="installments-single-rate" name="singleRate" type="number" inputMode="decimal" min={0} max={50} step={0.01} defaultValue={percent(settings.singleRateBp)} required/>
-            <FieldDescription>TAMI tek çekim komisyonu. Taksit oranları bundan düşük olamaz.</FieldDescription>
+            <FieldDescription>TAMI tek çekim komisyonu. Taksit oranı 0 (vade farksız) ya da en az bu oran olmalı.</FieldDescription>
           </Field>
         </FieldGroup>
         <Table controls={false} aria-label="Taksit oranları">
@@ -59,7 +63,7 @@ export function InstallmentSettingsCard({ settings }: { settings: InstallmentSet
             return <TableRow key={count}>
               <TableCell className="tabular-nums">{count} taksit{count > settings.max && <span className="text-muted-foreground"> · sunulmuyor</span>}</TableCell>
               <TableCell><Input name={`rate_${count}`} type="number" inputMode="decimal" min={0} max={50} step={0.01} defaultValue={rate === undefined ? "" : percent(rate)} aria-label={`${count} taksit oranı (%)`} className="max-w-28" required/></TableCell>
-              <TableCell className="text-right tabular-nums">{total === null ? "—" : money(total)}</TableCell>
+              <TableCell className="text-right tabular-nums">{total === null ? "—" : money(total)}{total === PREVIEW_KURUS && <span className="text-muted-foreground"> · {NO_FEE_LABEL}</span>}</TableCell>
               <TableCell className="text-right tabular-nums">{total === null ? "—" : money(Math.round(total / count))}</TableCell>
             </TableRow>;
           })}</TableBody>

@@ -4,7 +4,7 @@ import {catalogRowsByIds, categoryMovedAwaySql, withBestOffers, type CatalogProd
 import {getStoreCategories} from "./categories";
 import type {StoreCategory} from "./category-tree";
 import {storefrontCompanies} from "@/modules/suppliers/storefront-sources";
-import {staleCache} from "@/lib/stale-cache";
+import {staleCache,weighIds} from "@/lib/stale-cache";
 import {listingEpoch} from "./listing-epoch";
 import {hiddenAutomaticItemsSql} from "./product-image-sql";
 
@@ -15,7 +15,7 @@ import {hiddenAutomaticItemsSql} from "./product-image-sql";
 // A rail card needs an image the store shows (#596): either a trusted automatic image the admin did not hide, or an
 // admin upload (no trust or enrichment needed). Each arm picks its newest 24; a row in both counts by its later date,
 // so a fresh upload brings the product to the front. Uploads, deletes and the hide switch bump the epoch.
-const cachedHomeIds=staleCache<string[]>(10*60*1000,500,{epoch:listingEpoch});
+const cachedHomeIds=staleCache<string[]>(10*60*1000,500, {name:"home-ids",epoch:listingEpoch,weigh:weighIds,maxWeight:2*1024*1024});
 // The automatic arm's conditions without the category rule, shared by its donor-category and admin-category picks.
 const automaticArm=`s.company=ANY($1::text[]) AND s.presence='present' AND s.code=e.supplier_code
         AND s.product_data->>'uk'=e.supplier_brand AND e.image_id IS NOT NULL

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
+import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import type { CatalogProduct } from "../src/modules/store/catalog";
+import type { CatalogQuery } from "../src/modules/store/catalog-query";
 
 // Products no supplier sells now (#475) in an isolated copy of the schema: db/storefront-catalog.sql and the store
 // catalog reading it. Nothing is written to the shared database's tables.
@@ -12,6 +15,10 @@ let catalog: typeof import("../src/modules/store/catalog");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug, , dinamik] = storefrontCompanies();
+// A category listing reads the category tree, which calls connection() and needs a request scope: a static work store
+// lets it run. Next reads the global AsyncLocalStorage when its storage module loads (before, ahead of the catalog import).
+let workStorage: typeof import("next/dist/server/app-render/work-async-storage.external").workAsyncStorage;
+const inRequest = <T>(run: () => Promise<T>) => workStorage.run({ route: "/test", forceStatic: true } as Parameters<typeof workStorage.run>[0], run);
 
 type Item = { supplier: "basbug" | "dinamik"; code: string; brand: string; presence?: "present" | "pending_missing" | "inactive";
   group?: string; stock?: number | null; cost?: number; conflicting?: boolean; seenHoursAgo?: number };
@@ -48,6 +55,8 @@ before(async () => {
   await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids.mannBasbug, ids.mannDinamik]);
   // Creates the Bosch product from the Dinamik row and links the dropped Başbuğ row to it (#475).
   await schema.pool.query("SELECT refresh_product_matches()");
+  Object.assign(globalThis, { AsyncLocalStorage });
+  workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
   const [{ db }, module] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog")]);
   catalog = module;
   closeDb = () => db.end();
@@ -574,10 +583,13 @@ describe("availability filter (#1242)", () => {
     const sql = await readFile("db/commerce.sql", "utf8");
     for (const fragment of ["'Stok bilgisi güncelleniyor'", "'Stokta mevcut: '", "'Tedarikçide mevcut'", "commerce_stale_minutes*interval"])
       assert.equal(sql.split(fragment).length - 1, 1, fragment);
-    for (const view of ["commerce_catalog", "commerce_item_availability"]) {
+    // commerce_catalog's supplier rows come from commerce_supplier_catalog (#1424): the supplier calls sit there.
+    const supplierCalls = ["commerce_source_fresh(", "commerce_supplier_available(", "commerce_supplier_stock_label("];
+    const calls: Record<string, string[]> = { commerce_supplier_catalog: supplierCalls, commerce_catalog: ["commerce_store_stock_label("],
+      commerce_item_availability: [...supplierCalls, "commerce_store_stock_label("] };
+    for (const [view, expected] of Object.entries(calls)) {
       const { rows: [{ def }] } = await schema.pool.query<{ def: string }>("SELECT pg_get_viewdef($1::regclass) AS def", [view]);
-      for (const call of ["commerce_source_fresh(", "commerce_supplier_available(", "commerce_supplier_stock_label(", "commerce_store_stock_label("])
-        assert.ok(def.includes(call), `${view} calls ${call}`);
+      for (const call of expected) assert.ok(def.includes(call), `${view} calls ${call}`);
       // The view stores the calls, not their inlined text: no copy of the rule sits beside them.
       for (const copy of ["'Stok bilgisi güncelleniyor'", "sFarkliDepo"]) assert.ok(!def.includes(copy), `${view} carries ${copy}`);
     }
@@ -741,21 +753,518 @@ describe("availability filter (#1242)", () => {
   });
 
   test("the availability clause does not scan commerce_catalog again", async () => {
-    const source = await readFile("src/modules/store/catalog.ts", "utf8");
-    const start = source.indexOf("if(query.availability==='supplied')"), end = source.indexOf("const where", start);
-    assert.ok(start >= 0 && end > start, "availability clause anchors not found in catalog.ts");
-    const clause = source.slice(start, end);
-    assert.match(clause, /in_stock/);
-    assert.match(clause, /out_of_stock|NOT available/);
+    const source = await readFile("src/modules/store/stock-filter.ts", "utf8");
+    const start = source.indexOf("export function stockClause("), end = source.indexOf("\n}", start);
+    assert.ok(start >= 0 && end > start, "stockClause not found in stock-filter.ts");
+    const body = source.slice(start, end);
+    const stockFilter = await import("../src/modules/store/stock-filter"), { inStockIdsSql, stockClause } = stockFilter;
+    const [inStock, outOfStock] = [stockClause("in_stock"), stockClause("out_of_stock")];
+    assert.ok(inStock && outOfStock);
+    assert.equal(inStock.clause, `catalog.id IN (${inStockIdsSql})`);
     // Out of stock goes through the sized function, never the view's expressions directly (#1286), and drops the cards in
     // stock through a grouped offer inside the function's subquery (#1342).
-    assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id WHERE id NOT IN \(/);
-    assert.doesNotMatch(clause, /stock_label='Stokta yok'/);
-    assert.match(clause, /inStockIdsSql/);
+    assert.equal(outOfStock.clause, `catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id WHERE id NOT IN (${inStockIdsSql}))`);
+    assert.doesNotMatch(outOfStock.clause, /stock_label='Stokta yok'/);
     // The NOT IN stays a hashed SubPlan only within work_mem: its reads ask for more than the session default (#1342).
-    assert.match(clause, /workMem="\d+MB"/);
-    assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
-    assert.match(source, /const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
+    assert.match(outOfStock.workMem ?? "", /^\d+MB$/);
+    assert.deepEqual([inStock.idSet, outOfStock.idSet], [false, false]);
+    // Scoped (#1429): the bound ids' stock as one InitPlan array, never `catalog.id IN (…)` over it: out of stock then
+    // planned nested loops (4-30 s). The array reaches the scoped ids through a one-row MATERIALIZED CTE (#1455), whose
+    // WITH heads the whole statement (the UNION ALL in stock, the EXCEPT compound out of stock).
+    const scope = { param: "$3::uuid[]", size: 10 };
+    const clauses = [inStock.clause, outOfStock.clause];
+    const fed = "((SELECT ids FROM scope)::uuid[])";
+    for (const availability of ["in_stock", "out_of_stock"] as const) {
+      const scoped = stockClause(availability, scope);
+      assert.ok(scoped, availability);
+      clauses.push(scoped.clause);
+      assert.ok(scoped.clause.startsWith("catalog.id=ANY(ARRAY(") && scoped.clause.endsWith(")::uuid[])"), availability);
+      assert.ok(scoped.clause.startsWith("catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED (SELECT $3::uuid[] AS ids) "), availability);
+      assert.ok(scoped.clause.includes(`a.id=ANY(${fed})`) && scoped.clause.includes(`o.primary_id=ANY(${fed})`), availability);
+      // The bound array is read once, by the CTE only.
+      assert.equal(scoped.clause.split("$3::uuid[]").length - 1, 1, availability);
+      const ids = availability === "in_stock" ? stockFilter.scopedInStockIdsSql(fed) : stockFilter.scopedOutOfStockIdsSql(fed);
+      assert.equal(scoped.clause, `catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED (SELECT $3::uuid[] AS ids) ${ids})::uuid[])`, availability);
+      assert.doesNotMatch(scoped.clause, /catalog\.id IN \(/, availability);
+      assert.deepEqual([scoped.idSet, scoped.workMem], [true, undefined], availability);
+    }
+    assert.match(body, /catalog\.id=ANY\(ARRAY\(WITH scope AS MATERIALIZED \(SELECT \$\{scope\.param\} AS ids\) \$\{ids\}\)::uuid\[\]\)/);
+    assert.doesNotMatch(body, /catalog\.id IN \(\$\{ids\}/);
+    for (const clause of clauses) assert.doesNotMatch(clause, /commerce_catalog|storefront_catalog/);
+    assert.match(source, /export const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
+    // catalog.ts keeps the public name and builds its availability clause here only.
+    const catalogSource = await readFile("src/modules/store/catalog.ts", "utf8");
+    assert.match(catalogSource, /export \{ availabilitySql \} from "\.\/stock-filter";/);
+    assert.match(catalogSource, /const stock=stockClause\(query\.availability,/);
+    assert.doesNotMatch(catalogSource, /commerce_out_of_stock_ids\(|inStockIdsSql/);
+  });
+
+  // The stock filter of a listing that binds a JS id array (search, category, model, garage vehicle, oils) reads those ids'
+  // stock only (#1429). The oracle is the unscoped clause: over the same ids both must list the same cards, in both
+  // checkout modes, for in and out of stock.
+  describe("scoped stock filter (#1429)", () => {
+    let stockFilter: typeof import("../src/modules/store/stock-filter");
+    before(async () => {
+      await groups();
+      stockFilter = await import("../src/modules/store/stock-filter");
+    });
+    /** The listed cards of `scope` that `clause` keeps, read as catalogFilter's listing reads them, for `companies` (`$1`). */
+    const listed = async (scope: string[], clause: string, companies = storefrontCompanies()) => (await schema.pool.query<{ id: string }>(
+      `SELECT catalog.id::text AS id FROM (${catalog.catalogEntriesSql}) catalog WHERE ${catalog.listedOnly} AND catalog.id=ANY($2::uuid[]) AND ${clause} ORDER BY 1`,
+      [companies, scope])).rows.map(row => row.id);
+    const scoped = (availability: "in_stock" | "out_of_stock", size: number) => stockFilter.stockClause(availability, { param: "$2::uuid[]", size })!;
+
+    test("lists the same cards as the whole stock set's clause over any id array", async () => {
+      const { randomUUID } = await import("node:crypto");
+      const scopes: Record<string, string[]> = {
+        "all fixture ids": Object.values(ids),
+        ...Object.fromEntries((["grp", "grpZero", "grpUnknown"] as const).flatMap(group => [
+          [`${group} group`, [ids[`${group}Primary`], ids[`${group}Offer`]]], [`${group} primary alone`, [ids[`${group}Primary`]]]])),
+        "a secondary offer alone": [ids.grpOffer],
+        "store products": [ids.avStore, ids.avStoreEmpty],
+        "a random uuid": [randomUUID()],
+        "an empty array": [],
+      };
+      // The companies `$1` carries: the storefront's, and without Dinamik, whose offers then neither list nor sell a group.
+      const companySets = { "all companies": storefrontCompanies(), "without Dinamik": storefrontCompanies().filter(company => company !== dinamik) };
+      const mode = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+      try {
+        for (const checkout of ["live", "snapshot"]) {
+          await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [checkout]);
+          for (const availability of ["in_stock", "out_of_stock"] as const) {
+            const whole = stockFilter.stockClause(availability)!;
+            for (const [companiesName, companies] of Object.entries(companySets)) {
+              for (const [name, scope] of Object.entries(scopes)) {
+                const clause = scoped(availability, scope.length), label = `${checkout} ${availability} ${companiesName} ${name}`;
+                assert.equal(clause.idSet, true, label);
+                assert.deepEqual(await listed(scope, clause.clause, companies), await listed(scope, whole.clause, companies), label);
+              }
+            }
+          }
+          // Without Dinamik the group whose stocked offer is Dinamik's is sold out on both sides.
+          const withoutDinamik = companySets["without Dinamik"];
+          assert.deepEqual(await listed([ids.grpPrimary], scoped("out_of_stock", 1).clause, withoutDinamik), [ids.grpPrimary], checkout);
+          assert.deepEqual(await listed([ids.grpPrimary], scoped("in_stock", 1).clause, withoutDinamik), [], checkout);
+          // Not vacuous: both sides list cards, among them a primary sold only through its offer, which is never a card itself.
+          const all = scopes["all fixture ids"];
+          const [inStock, outOfStock] = [await listed(all, scoped("in_stock", all.length).clause), await listed(all, scoped("out_of_stock", all.length).clause)];
+          assert.ok(inStock.includes(ids.grpPrimary) && inStock.includes(ids.avStore) && !inStock.includes(ids.grpOffer), checkout);
+          assert.ok(outOfStock.includes(ids.grpZeroPrimary) && outOfStock.includes(ids.avZero) && outOfStock.includes(ids.avStoreEmpty), checkout);
+          assert.ok(!outOfStock.includes(ids.grpPrimary) && !outOfStock.includes(ids.grpUnknownPrimary), checkout);
+          assert.deepEqual(await listed([ids.grpPrimary], scoped("in_stock", 1).clause), [ids.grpPrimary], checkout);
+        }
+      } finally {
+        await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+      }
+    });
+
+    test("LISTING_STOCK_SCOPE_MAX_IDS bounds the scoped clause; 0 turns it off", async () => {
+      const saved = process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+      const withMax = <T>(value: string | undefined, run: () => T) => {
+        if (value === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+        else process.env.LISTING_STOCK_SCOPE_MAX_IDS = value;
+        try {
+          return run();
+        } finally {
+          if (saved === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+          else process.env.LISTING_STOCK_SCOPE_MAX_IDS = saved;
+        }
+      };
+      const { stockScopeMaxIds, defaultStockScopeMaxIds, stockClause } = stockFilter;
+      assert.equal(defaultStockScopeMaxIds, 30_000);
+      for (const [value, expected] of [[undefined, 30_000], ["", 30_000], [" ", 30_000], ["0", 0], ["abc", 30_000], ["-5", 30_000], ["1.5", 30_000],
+        ["12000", 12_000], ["50000", 50_000], ["999999", 50_000]] as const)
+        assert.equal(withMax(value, stockScopeMaxIds), expected, `LISTING_STOCK_SCOPE_MAX_IDS=${value}`);
+      // The ceiling is pricedByIdsMax: a scoped listing has at most that many rows, so a price order prices it by its ids.
+      assert.match(await readFile("src/modules/store/catalog.ts", "utf8"), /const pricedByIdsMax=50_000;/);
+      const scope = (size: number) => ({ param: "$2::uuid[]", size });
+      for (const availability of ["in_stock", "out_of_stock"] as const) {
+        const whole = stockClause(availability);
+        assert.equal(withMax(undefined, () => stockClause(availability, scope(30_000)))?.idSet, true, availability);
+        assert.equal(withMax("100", () => stockClause(availability, scope(100)))?.idSet, true, availability);
+        // One id over the limit, the setting 0 (an empty array too) or no bound array: the whole set's clause, as before.
+        for (const [value, size] of [[undefined, 30_001], ["100", 101], ["999999", 50_001], ["0", 5], ["0", 0]] as const)
+          assert.deepEqual(withMax(value, () => stockClause(availability, scope(size))), whole, `${availability} ${value} ${size}`);
+      }
+      assert.equal(withMax(undefined, () => stockClause("out_of_stock", scope(30_001)))?.workMem, "32MB");
+      assert.deepEqual(stockClause("supplied", scope(1)), { clause: "NOT catalog.unavailable", idSet: false });
+      assert.equal(stockClause(undefined, scope(1)), undefined);
+      // A brand's, manufacturer's or make's prefetched scope (#1455): the setting's limit, in stock at most 20,000 (its count
+      // lost to the whole set's in the 20-30k band); none without a stock filter or with the setting at 0.
+      const { prefetchedStockScopeMaxIds } = stockFilter;
+      for (const [value, inStock, outOfStock] of [[undefined, 20_000, 30_000], ["12000", 12_000, 12_000], ["25000", 20_000, 25_000],
+        ["999999", 20_000, 50_000], ["0", 0, 0]] as const) {
+        assert.equal(withMax(value, () => prefetchedStockScopeMaxIds("in_stock")), inStock, `in_stock ${value}`);
+        assert.equal(withMax(value, () => prefetchedStockScopeMaxIds("out_of_stock")), outOfStock, `out_of_stock ${value}`);
+        for (const availability of ["supplied", undefined] as const) assert.equal(withMax(value, () => prefetchedStockScopeMaxIds(availability)), 0, `${availability} ${value}`);
+      }
+      // catalogFilter reads its prefetched scopes up to that limit, and only when it is above 0.
+      const catalogSource = await readFile("src/modules/store/catalog.ts", "utf8");
+      assert.match(catalogSource, /prefetchMax=prefetchedStockScopeMaxIds\(query\.availability\);\n if\(prefetchMax>0&&/);
+      assert.match(catalogSource, /stockScope\(source,prefetchMax\)/);
+    });
+
+    // Brand and manufacturer listings bind no JS id array: a stock filter reads their listed ids first (the stock scope,
+    // cached) and then those ids' stock only (#1455). The oracle is the whole stock set's clause (LISTING_STOCK_SCOPE_MAX_IDS=0),
+    // each side read by a fresh process (its own caches), in both checkout modes.
+    describe("stock scopes of brand and manufacturer listings (#1455)", () => {
+      type Catalog = typeof import("../src/modules/store/catalog");
+      let processes = 0;
+      /** Another app process: a second copy of the catalog module, with its own process caches, on the same database. */
+      const otherProcess = async () => await import(`../src/modules/store/catalog.ts?brand-stock-scope-${++processes}`) as Catalog;
+      /** The text of every statement `run` sends, on any connection. */
+      async function sentTexts(run: () => Promise<unknown>) {
+        const texts: string[] = [];
+        const original = pg.Client.prototype.query;
+        pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+          const config = args[0];
+          texts.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
+          return (original as (...rest: unknown[]) => unknown).apply(this, args);
+        } as typeof original;
+        try {
+          await run();
+        } finally {
+          pg.Client.prototype.query = original;
+        }
+        return texts;
+      }
+      /** The listing read by a fresh process under LISTING_STOCK_SCOPE_MAX_IDS=`max` (undefined: unset), and the statements it sent. */
+      async function listing(max: string | undefined, query: CatalogQuery) {
+        const saved = process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+        if (max === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+        else process.env.LISTING_STOCK_SCOPE_MAX_IDS = max;
+        try {
+          const fresh = await otherProcess();
+          let listed: Awaited<ReturnType<Catalog["browseProducts"]>> | undefined;
+          const texts = await sentTexts(async () => { listed = await fresh.browseProducts(query); });
+          assert.ok(listed);
+          return { listed: { ids: listed.items.map(row => row.id), total: listed.total, page: listed.page, pages: listed.pages }, texts };
+        } finally {
+          if (saved === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+          else process.env.LISTING_STOCK_SCOPE_MAX_IDS = saved;
+        }
+      }
+      const scopedMarker = "catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED";
+      /** A statement over the priced view (storefront_catalog), not the lean entries or the availability view. */
+      const priced = (text: string) => /FROM storefront_catalog WHERE/.test(text);
+      const wholeClause = (availability: "in_stock" | "out_of_stock") =>
+        availability === "in_stock" ? "catalog.id IN (SELECT COALESCE(o.primary_id,a.id)" : "commerce_out_of_stock_ids(";
+      before(async () => {
+        await groups();
+        // AVTEST as a master brand of its own name, its rows keeping their shown brand: the manufacturer page /marka/avtest.
+        // The matching refresh may have created the brand already (#470).
+        await schema.pool.query("INSERT INTO brands(key,name) VALUES('AVTEST','AVTEST') ON CONFLICT (key) DO NOTHING");
+        await schema.pool.query(`INSERT INTO supplier_brands(supplier,label,brand_id,items) SELECT supplier,'AVTEST',b.id,3
+          FROM brands b CROSS JOIN unnest(ARRAY['basbug','dinamik']) supplier WHERE b.key='AVTEST' ON CONFLICT (supplier,label) DO NOTHING`);
+        const { invalidateListings } = await import("../src/modules/store/listing-epoch");
+        await invalidateListings();
+      });
+
+      test("lists the same cards, order, totals and pages scoped and over the whole stock set", async () => {
+        const mode = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+        const queries: Record<string, CatalogQuery> = {
+          "brand AVTEST": { brand: "AVTEST" }, "brand GRUPTEST": { brand: "GRUPTEST" }, "brands AVTEST+GRUPTEST": { brands: '["AVTEST","GRUPTEST"]' },
+          "manufacturer avtest": { manufacturer: "avtest" }, "manufacturer avtest + brand GRUPTEST": { manufacturer: "avtest", brand: "GRUPTEST" },
+        };
+        try {
+          for (const checkout of ["live", "snapshot"]) {
+            await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [checkout]);
+            const totals: Record<string, number> = {};
+            for (const [name, base] of Object.entries(queries)) {
+              for (const availability of ["in_stock", "out_of_stock"] as const) {
+                for (const sort of [undefined, "price-asc", "price-desc"] as const) {
+                  const label = `${checkout} ${name} ${availability} ${sort ?? "newest"}`, query = { ...base, availability, sort };
+                  const scoped = await listing(undefined, query), whole = await listing("0", query);
+                  assert.deepEqual(scoped.listed, whole.listed, label);
+                  totals[`${name} ${availability}`] = scoped.listed.total;
+                  // The scope's listed ids are read first (one array literal), then the scoped clause; 0 reads neither.
+                  assert.ok(scoped.texts.some(text => text.includes("array_agg(id)::text") && text.includes(") scope")), label);
+                  assert.ok(scoped.texts.some(text => text.includes(scopedMarker)), label);
+                  assert.ok(!scoped.texts.some(text => text.includes(wholeClause(availability))), label);
+                  assert.ok(whole.texts.some(text => text.includes(wholeClause(availability))), label);
+                  assert.ok(!whole.texts.some(text => text.includes("scope AS MATERIALIZED") || text.includes(") scope")), label);
+                  // A statement pricing the view never reads the scoped clause: a price order reads the listing's ids first.
+                  assert.ok(!scoped.texts.some(text => priced(text) && text.includes("scope AS MATERIALIZED")), label);
+                  if (sort) assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes(scopedMarker)), label);
+                }
+              }
+            }
+            // Not vacuous: both stock filters list cards of both brands; the manufacturer page lists its brand's.
+            for (const name of ["brand AVTEST", "brand GRUPTEST", "manufacturer avtest"])
+              for (const availability of ["in_stock", "out_of_stock"]) assert.ok(totals[`${name} ${availability}`] > 0, `${checkout} ${name} ${availability}`);
+            assert.equal(totals["brands AVTEST+GRUPTEST in_stock"], totals["brand AVTEST in_stock"] + totals["brand GRUPTEST in_stock"], checkout);
+            assert.equal(totals["manufacturer avtest in_stock"], totals["brand AVTEST in_stock"], checkout);
+            assert.equal(totals["manufacturer avtest + brand GRUPTEST in_stock"], 0, checkout);
+          }
+        } finally {
+          await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+        }
+      });
+
+      // A scope is never used older than its 10-minute TTL (maxServeMs): a request past it waits for the reload instead of
+      // getting the old scope while a background refresh runs, so a row that joined the brand since (no counter moved) is
+      // listed. Read through stockListingStatements: the scope cache alone, no listing cache. The mocked clock moves its age.
+      test("a scope older than its TTL is read again before it is used", async t => {
+        t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+        const fresh = await otherProcess(), query: CatalogQuery = { brand: "SCOPETEST", availability: "in_stock" };
+        const counted = async () => {
+          const statements = await fresh.stockListingStatements(query, 1);
+          assert.ok(statements.count.text.includes(scopedMarker) && statements.scopes.length === 1);
+          return Number((await schema.pool.query<{ count: string }>(statements.count.text, statements.count.values)).rows[0].count);
+        };
+        await item("scopeFirst", { supplier: "basbug", code: "SCP 0001", brand: "SCOPETEST", stock: 2 });
+        try {
+          assert.equal(await counted(), 1);
+          await item("scopeJoined", { supplier: "basbug", code: "SCP 0002", brand: "SCOPETEST", stock: 2 });
+          // Within the TTL the cached scope lacks the joined row (the documented bound): the whole set's clause lists it.
+          t.mock.timers.tick(10 * 60 * 1000 - 1);
+          assert.equal(await counted(), 1, "within the TTL");
+          t.mock.timers.tick(2);
+          assert.equal(await counted(), 2, "past the TTL the scope is read again before it is used");
+        } finally {
+          await schema.pool.query("DELETE FROM supplier_items WHERE id=ANY($1::uuid[])", [[ids.scopeFirst, ids.scopeJoined].filter(Boolean)]);
+        }
+      });
+
+      test("a scope over LISTING_STOCK_SCOPE_MAX_IDS reads the whole stock set", async () => {
+        for (const availability of ["in_stock", "out_of_stock"] as const) {
+          // AVTEST lists more than one card: over a limit of 1 its scope read stops at two rows and binds nothing.
+          const query = { brand: "AVTEST", availability }, over = await listing("1", query), whole = await listing("0", query);
+          assert.deepEqual(over.listed, whole.listed, availability);
+          assert.ok(over.texts.some(text => text.includes(") scope") && text.includes("LIMIT 2")), availability);
+          assert.ok(!over.texts.some(text => text.includes("scope AS MATERIALIZED")), availability);
+          assert.ok(over.texts.some(text => text.includes(wholeClause(availability))), availability);
+        }
+        // NGK lists one card, in stock: within a limit of 1 its scope is bound.
+        const ngk = await listing("1", { brand: "NGK", availability: "in_stock" });
+        assert.deepEqual(ngk.listed.ids, [ids.ngk]);
+        assert.ok(ngk.texts.some(text => text.includes(scopedMarker)));
+      });
+    });
+  });
+});
+
+// commerce_catalog is the store products UNION ALL commerce_supplier_catalog (#1424). The one view before held both a WITH
+// and the UNION ALL: the planner could neither flatten it nor drop its unused columns, and built every column of every
+// supplier row (pricing_snapshot's jsonb, stock labels, names) for a price order reading three. The body before the split,
+// frozen in scripts/fixtures/commerce-catalog-pre-1424.sql, is the oracle: the same rows, and the same listings when the
+// unchanged storefront_catalog reads it.
+describe("split catalog views (#1424)", () => {
+  const preSplitBody = () => readFile("scripts/fixtures/commerce-catalog-pre-1424.sql", "utf8");
+  let invalidateListings: () => Promise<void>;
+  let order = 0;
+  type SplitRow = { supplier?: "basbug" | "dinamik"; stock?: Record<string, number> | null; cost?: number; currency?: string; category?: string;
+    seenHoursAgo?: number; presence?: "present" | "inactive" };
+  /** A SPLITTEST row; each later row is older (changed_at), so the newest order is fixed. */
+  async function splitRow(key: string, { supplier = "basbug", stock = { stok: 2 }, cost = 100, currency = "TL", category = "", seenHoursAgo = 1,
+    presence = "present" }: SplitRow = {}) {
+    const product = { uk: "SPLITTEST", ac: `${key} PARCA`, dc: currency, ...(category ? { category } : {}),
+      ...(supplier === "dinamik" ? { marka: "SPLITTEST", stokAdi: `${key} PARCA` } : {}) };
+    const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES($1,$2,'SPLIT',$3,$4,$5,$6,$7,1,1,1,false,$8,now()-interval '10 days',now()-make_interval(hours=>$9),now()-make_interval(mins=>$10))
+      RETURNING id::text`, [supplier, supplier === "basbug" ? basbug : dinamik, supplier === "basbug" ? "MRK" : "ALL", `SPLITTEST ${key.toUpperCase()}`,
+      product, { nf: cost }, stock, presence, seenHoursAgo, ++order]);
+    ids[key] = rows[0].id;
+  }
+  const setMode = (mode: string) => schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+  /** `run` in both checkout modes, the stored mode restored afterwards. */
+  async function inBothModes(run: (mode: string) => Promise<void>) {
+    const saved = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+    try {
+      for (const mode of ["live", "snapshot"]) {
+        await setMode(mode);
+        await run(mode);
+      }
+    } finally {
+      await setMode(saved);
+    }
+  }
+  /** `run` while commerce_catalog has its pre-split body (storefront_catalog, unchanged, reads it), the split body restored afterwards. */
+  async function withPreSplitCatalog<T>(run: () => Promise<T>) {
+    const { rows: [{ def }] } = await schema.pool.query<{ def: string }>("SELECT pg_get_viewdef('commerce_catalog'::regclass) AS def");
+    await schema.pool.query(`CREATE OR REPLACE VIEW commerce_catalog AS ${await preSplitBody()}`);
+    try {
+      await invalidateListings();
+      return await run();
+    } finally {
+      await schema.pool.query(`CREATE OR REPLACE VIEW commerce_catalog AS ${def}`);
+      await invalidateListings();
+    }
+  }
+  const plan = async (sql: string, values: unknown[] = []) => (await schema.pool.query<{ "QUERY PLAN": string }>(`EXPLAIN (VERBOSE, COSTS OFF) ${sql}`, values))
+    .rows.map(row => row["QUERY PLAN"]).join("\n");
+
+  // After invalidateListings() the listing counts, page ids and facets serve their earlier value once a reload takes longer
+  // than LISTING_EPOCH_WAIT_MS (listing-wait.ts; 250 ms by default). On a slow runner the pre-split reads below would then
+  // repeat the split ones, and the stock change would not show: every reload here is awaited, whatever the environment sets.
+  let savedWait: string | undefined;
+  before(() => {
+    savedWait = process.env.LISTING_EPOCH_WAIT_MS;
+    process.env.LISTING_EPOCH_WAIT_MS = "600000";
+  });
+  after(() => {
+    if (savedWait === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
+    else process.env.LISTING_EPOCH_WAIT_MS = savedWait;
+  });
+
+  before(async () => {
+    invalidateListings = (await import("../src/modules/store/listing-epoch")).invalidateListings;
+    await schema.pool.query(`CREATE VIEW commerce_catalog_pre1424 AS ${await preSplitBody()}`);
+    // Categories 3 Yedek parçalar > 252 Fren: the legacy "fren" category of store products and supplier rows.
+    await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
+      ('trodo',3,NULL,'Yedek parçalar','yedek-parca','{3}','','{}'),('trodo',252,3,'Fren','fren','{3,252}','','{}');
+      INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
+      ('trodo',3,'tr','Yedek parçalar','yedek-parca'),('trodo',252,'tr','Fren','fren')`);
+    // A master brand with a manufacturer page (/marka/splittest).
+    const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('SPLITTEST','SPLITTEST') RETURNING id::text")).rows[0].id;
+    await schema.pool.query("INSERT INTO supplier_brands(supplier,label,brand_id,items) VALUES('basbug','SPLITTEST',$1,12),('dinamik','SPLITTEST',$1,1)", [brand]);
+    // Rates: Başbuğ's newest succeeded import (EUR 50, fresh) and Dinamik's (USD 30, older than max_age_hours: a stale rate).
+    await schema.pool.query(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug',$1,'SPLIT','MRK',now()-interval '50 minutes',now()-interval '50 minutes','{}','{}','{}','{"dovizListesi":[{"dovizCinsi":"EUR","satis":50}]}','succeeded'),
+       ('dinamik',$2,'SPLIT','ALL',now()-interval '200 hours',now()-interval '200 hours','{}','{}','{}','{"dovizListesi":[{"dovizCinsi":"USD","satis":30}]}','succeeded')`,
+    [basbug, dinamik]);
+    await splitRow("spCheap", { cost: 10, category: "fren" });
+    await splitRow("spTieA", { cost: 20 });
+    await splitRow("spTieB", { cost: 20, category: "fren" });
+    await splitRow("spFixed", { cost: 50 });
+    await splitRow("spCampaign", { cost: 60, category: "fren" });
+    await splitRow("spAnomaly", { cost: 40 });
+    await splitRow("spEur", { cost: 2, currency: "EUR" });
+    await splitRow("spStaleRate", { supplier: "dinamik", cost: 3, currency: "USD" });
+    await splitRow("spSoldOut", { cost: 30, stock: { stok: 0 }, category: "fren" });
+    await splitRow("spOtherDepot", { cost: 35, stock: { stok: 0, sFarkliDepo: 2 } });
+    await splitRow("spStaleSeen", { cost: 45, seenHoursAgo: 100 });
+    await splitRow("spHidden", { cost: 15 });
+    await splitRow("spGone", { cost: 25, stock: { stok: 0 }, presence: "inactive", category: "fren" });
+    // Matching first: its sync of product edits drops item overrides no product override backs (db/product-overrides.sql).
+    await schema.pool.query("SELECT refresh_product_matches()");
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,price_kurus) VALUES($1,$1,1234)", [ids.spFixed]);
+    await schema.pool.query(`INSERT INTO commerce_item_overrides(supplier_item_id,product_id,sale_price_kurus,sale_from,sale_until)
+      VALUES($1,$1,999,now()-interval '1 day',now()+interval '1 day')`, [ids.spCampaign]);
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.spHidden]);
+    await schema.pool.query("INSERT INTO supplier_price_anomalies(supplier_item_id,supplier,evidence) VALUES($1,'basbug','{}')", [ids.spAnomaly]);
+    const store = await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock,category)
+      VALUES('demo','SPLIT-STORE-1','Depo ürünü','SPLITTEST',5000,3,'fren'),('demo','SPLIT-STORE-0','Depo ürünü','SPLITTEST',4000,0,'') RETURNING id::text`);
+    [ids.spStore, ids.spStoreEmpty] = store.rows.map(row => row.id);
+    await invalidateListings();
+  });
+
+  test("the split views return the pre-split rows and columns in both checkout modes", async () => {
+    const columns = async (view: string) => (await schema.pool.query(`SELECT attname AS name,format_type(atttypid,atttypmod) AS type,
+      attcollation::regcollation::text AS collation FROM pg_attribute WHERE attrelid=$1::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum`, [view])).rows;
+    const catalogColumns = await columns("commerce_catalog");
+    assert.equal(catalogColumns.length, 21);
+    assert.deepEqual(catalogColumns, await columns("commerce_catalog_pre1424"));
+    // The inner view carries commerce_catalog's columns, names, order and types alike (db/commerce.sql).
+    assert.deepEqual(await columns("commerce_supplier_catalog"), catalogColumns);
+    const difference = async (from: string, minus: string) => (await schema.pool.query<{ id: string }>(
+      `SELECT id::text FROM (SELECT * FROM ${from} EXCEPT ALL SELECT * FROM ${minus}) d`)).rows.map(row => row.id);
+    const row = async (key: string) => (await schema.pool.query<{ price_kurus: number | null; pricing_snapshot: Record<string, unknown> }>(
+      "SELECT price_kurus,pricing_snapshot FROM commerce_catalog WHERE id=$1", [ids[key]])).rows[0];
+    await inBothModes(async mode => {
+      assert.deepEqual(await difference("commerce_catalog", "commerce_catalog_pre1424"), [], mode);
+      assert.deepEqual(await difference("commerce_catalog_pre1424", "commerce_catalog"), [], mode);
+      // The fixture reaches each pricing case: fixed price, campaign, open anomaly, another currency, a stale rate, hidden, store.
+      assert.equal((await row("spFixed")).price_kurus, 1234, mode);
+      assert.equal((await row("spFixed")).pricing_snapshot.price_kind, "fixed", mode);
+      assert.equal((await row("spCampaign")).price_kurus, 999, mode);
+      assert.equal((await row("spCampaign")).pricing_snapshot.price_kind, "sale", mode);
+      assert.equal((await row("spAnomaly")).price_kurus, null, mode);
+      assert.equal(Number((await row("spEur")).pricing_snapshot.exchange_rate), 50, mode);
+      assert.equal((await row("spStaleRate")).price_kurus === null, mode === "live", mode);
+      assert.equal(await row("spHidden"), undefined, mode);
+      assert.deepEqual((await row("spStore")).pricing_snapshot, { source: "store", base_price_kurus: 5000 }, mode);
+    });
+  });
+
+  test("a price order's read builds only the columns it sorts by (#1424)", async () => {
+    const priced = "SELECT id,unavailable,price_kurus FROM storefront_catalog";
+    const pricedPlan = await plan(priced);
+    // No pricing_snapshot (jsonb_build_object), no stock label, and the catalog is not one subquery scan over its UNION ALL.
+    assert.doesNotMatch(pricedPlan, /jsonb_build_object/);
+    assert.doesNotMatch(pricedPlan, /Stok bilgisi güncelleniyor/);
+    assert.doesNotMatch(pricedPlan, /Subquery Scan on c\b/);
+    // A row read still builds every column.
+    const rowPlan = await plan("SELECT * FROM storefront_catalog WHERE id=$1", [ids.spCheap]);
+    assert.match(rowPlan, /jsonb_build_object/);
+    assert.match(rowPlan, /Stok bilgisi güncelleniyor/);
+    // What the check guards against: the pre-split body built them for the price order too.
+    await withPreSplitCatalog(async () => {
+      const old = await plan(priced);
+      assert.match(old, /Subquery Scan on c\b/);
+      assert.match(old, /jsonb_build_object/);
+      assert.match(old, /Stok bilgisi güncelleniyor/);
+    });
+  });
+
+  test("listings show the pre-split ids, order, cards, counts and facets (#1424)", async () => {
+    const scopes: Record<string, CatalogQuery> = { none: {}, category: { category: "fren" }, brand: { brand: "SPLITTEST" },
+      manufacturer: { manufacturer: "splittest" }, "category+brand": { category: "fren", brand: "SPLITTEST" } };
+    const availabilities = [undefined, "in_stock", "supplied", "out_of_stock"] as const;
+    const sorts = [undefined, "price-asc", "price-desc"] as const;
+    /** Every page's cards (up to five pages) and the total of each case, and each scope's facets. */
+    const readAll = async () => {
+      const read = new Map<string, unknown>();
+      for (const [name, scope] of Object.entries(scopes)) {
+        read.set(`${name} facets`, await inRequest(() => catalog.catalogFacets(scope)));
+        for (const availability of availabilities) for (const sort of sorts) {
+          const query: CatalogQuery = { ...scope, ...availability && { availability }, ...sort && { sort } };
+          const first = await inRequest(() => catalog.browseProducts(query));
+          const items = [...first.items];
+          for (let page = 2; page <= Math.min(first.pages, 5); page++)
+            items.push(...(await inRequest(() => catalog.browseProducts({ ...query, page: String(page) }))).items);
+          read.set(JSON.stringify(query), { total: first.total, items });
+        }
+      }
+      return read;
+    };
+    await invalidateListings();
+    const split = await readAll();
+    const preSplit = await withPreSplitCatalog(readAll);
+    assert.equal(split.size, 65);
+    for (const [key, value] of split) assert.deepEqual(value, preSplit.get(key), key);
+    // Not two empty answers: the brand's price order, the manufacturer's facet and the category scope.
+    const listed = (query: CatalogQuery) => split.get(JSON.stringify(query)) as { total: number; items: CatalogProduct[] };
+    const ascending = listed({ brand: "SPLITTEST", sort: "price-asc" });
+    assert.equal(ascending.total, 14);
+    // The campaign (999) and the fixed price (1234) under the formula's cheapest (10 TL: 1560), the tie in id order.
+    assert.deepEqual(ascending.items.slice(0, 5).map(row => row.id), [ids.spCampaign, ids.spFixed, ids.spCheap, ...[ids.spTieA, ids.spTieB].sort()]);
+    assert.deepEqual(ascending.items.slice(0, 3).map(row => row.price_kurus), [999, 1234, 1560]);
+    // Unpriced rows (open anomaly, stale observation, stale rate) after the priced ones, the unavailable card last.
+    assert.deepEqual(ascending.items.slice(-4).map(row => row.id), [...[ids.spAnomaly, ids.spStaleSeen, ids.spStaleRate].sort(), ids.spGone]);
+    assert.ok(!ascending.items.some(row => row.id === ids.spHidden));
+    assert.deepEqual((split.get("manufacturer facets") as { brands: string[] }).brands, ["SPLITTEST"]);
+    assert.equal(listed({ manufacturer: "splittest", sort: "price-desc" }).total, ascending.total);
+    assert.deepEqual(new Set(listed({ category: "fren", brand: "SPLITTEST", availability: "in_stock", sort: "price-asc" }).items.map(row => row.id)),
+      new Set([ids.spCheap, ids.spTieB, ids.spCampaign, ids.spStore]));
+  });
+
+  test("a stock change shows in the next price-sorted listing read after the caches are reset (#1424)", async () => {
+    const listing = (availability: "in_stock" | "out_of_stock") => inRequest(() => catalog.browseProducts({ brand: "SPLITTEST", availability, sort: "price-asc" }));
+    const listedIds = (rows: CatalogProduct[]) => rows.map(row => row.id);
+    const [inBefore, outBefore] = [await listing("in_stock"), await listing("out_of_stock")];
+    for (const key of ["spCheap", "spStore"]) {
+      assert.ok(listedIds(inBefore.items).includes(ids[key]) && !listedIds(outBefore.items).includes(ids[key]), key);
+    }
+    try {
+      await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":0}' WHERE id=$1`, [ids.spCheap]);
+      await schema.pool.query("UPDATE store_products SET stock=0 WHERE id=$1", [ids.spStore]);
+      await invalidateListings();
+      const [inAfter, outAfter] = [await listing("in_stock"), await listing("out_of_stock")];
+      for (const key of ["spCheap", "spStore"]) {
+        assert.ok(!listedIds(inAfter.items).includes(ids[key]), key);
+        const card = outAfter.items.find(row => row.id === ids[key]);
+        assert.equal(card?.stock_label, "Stokta yok", key);
+        assert.equal(card?.available, false, key);
+      }
+      assert.equal(inAfter.total, inBefore.total - 2);
+      assert.equal(outAfter.total, outBefore.total + 2);
+    } finally {
+      await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":2}' WHERE id=$1`, [ids.spCheap]);
+      await schema.pool.query("UPDATE store_products SET stock=3 WHERE id=$1", [ids.spStore]);
+      await invalidateListings();
+    }
   });
 });

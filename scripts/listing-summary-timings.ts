@@ -21,7 +21,10 @@ import pg, { type PoolClient, type QueryResultRow } from "pg";
 // - the probe: the order written into a temporary table (pg_temp, ON COMMIT DROP; a data-modifying statement plans
 //   without parallel workers, as the build does), its stored size, and the page's slice read back from it.
 // A scope is `katalog` (every listed product) or `key=value` pairs joined by `&`, keys manufacturer, make, model and
-// category: `manufacturer=orijinal`, `make=volkswagen`, `category=fren&make=volkswagen`.
+// category: `manufacturer=orijinal`, `make=volkswagen`, `category=fren&make=volkswagen`. With --price-order a scope may
+// also name the filters whose large listings store their order too (#1390): brand, brands (a JSON array), availability
+// and attributes (a JSON object): `brand=ORIJINAL`, `brands=["BOSCH","FEBI","VALEO"]`, `availability=in_stock`. The
+// summary comparison covers listings without them only (listingStatements rejects them).
 process.env.LISTING_CACHE_PERSIST = "0";
 const args = process.argv.slice(2);
 const flags = new Map(args.filter(arg => arg.startsWith("--")).map(arg => {
@@ -43,12 +46,15 @@ const page = Number(flags.get("page") ?? 57);
 if (!Number.isSafeInteger(page) || page < 1) throw new Error("--page must be a positive integer");
 const scopes = args.filter(arg => !arg.startsWith("--"));
 if (!scopes.length) throw new Error("Name at least one scope: katalog, manufacturer=orijinal, make=volkswagen, category=fren …");
-const scopeKeys = new Set(["manufacturer", "make", "model", "category"]);
+const scopeKeys = new Set(["manufacturer", "make", "model", "category", "brand", "brands", "availability", "attributes"]);
 function parseScope(scope: string) {
   if (scope === "katalog") return {};
   const query = Object.fromEntries(new URLSearchParams(scope));
   const unknown = Object.keys(query).filter(key => !scopeKeys.has(key));
-  if (unknown.length || !Object.keys(query).length) throw new Error(`Invalid scope ${scope}: use katalog or manufacturer|make|model|category=<slug>`);
+  if (unknown.length || !Object.keys(query).length) {
+    throw new Error(`Invalid scope ${scope}: use katalog or manufacturer|make|model|category=<slug>; with --price-order also brand|brands|availability|attributes=<value>`);
+  }
+  if (query.availability !== undefined && !["in_stock", "out_of_stock", "supplied"].includes(query.availability)) throw new Error(`Invalid availability in ${scope}`);
   return query;
 }
 
