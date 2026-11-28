@@ -20,6 +20,7 @@
 //                    pending goes in stock order; a partial product is replaced only by a complete result or one with
 //                    more vehicles. One request every PARTS2WORLD_INTERVAL_MS (default 2500) + up to 1 s; HTTP 403/429/503
 //                    stops the run, collected packages stay in the checkpoint and are written on the next run.
+//                    HTTP 529 is per article: the first is an error asked again on the next pass, the second is not_found (#1469).
 //                    The article's TecDoc part type name (spareInfo) is stored in parts2world_article_types and
 //                    mapped to Trodo categories through product_type_categories (#852).
 //   fetch-types [--limit N] [--retry]  asks article-info again for the articles of stored enrichments (default 50, in a
@@ -44,7 +45,8 @@ import {createInterface} from 'node:readline';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
 import {PARTS2WORLD,articleInfoPath,articleType,articleTypeAnswer,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
-import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
+import {ArticleUnavailable,Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
+import {openRow,rowStillOpenSql,seen529,unavailableEntry} from '../src/modules/enrichment/parts2world-retry';
 import {parts2worldLockNames} from '../src/modules/enrichment/parts2world-locks';
 import {parseEgressProxy} from '../src/modules/suppliers/egress-proxy';
 import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
@@ -298,8 +300,9 @@ async function collect(){
   const ids=option('ids')?(await readFile(option('ids')!,'utf8')).split(/\s+/).filter(Boolean):null;
   if(status==='pending')await pool.query('SELECT enrichment_product_states_sync()');
   // The other egress's worker walks the same queue (#1082): rows it already tried are left to it (#1094).
+  const startedAt=(await pool.query<{at:Date}>('SELECT now() AS at')).rows[0].at;
   const other=retry||ids?new Map<string,Entry>():await entries(viaProxy?checkpoints.direct:checkpoints.proxy);
-  const open=(row:Row)=>(retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id))&&!other.has(row.id);
+  const open=(row:Row)=>openRow(done.get(row.id),other.get(row.id),retry);
   const queued=(await pool.query<Row>(queueSql(Boolean(ids)),ids?[status,ids]:[status])).rows.filter(open);
   // Matched Dinamik price-list-only codes take their share of a pending pass (#1075).
   const share=status==='pending'&&!ids?priceOnlyShare(option('price-only-share')):0;
@@ -320,8 +323,9 @@ async function collect(){
   for(const row of rows){
    index++;
    const queue=row.priceOnly?'price_only':status;
-   // The row list is fixed at the start; a job another worker or source has written since costs no request (#1094).
-   if(!dryRun&&(await pool.query('SELECT 1 FROM product_enrichment_jobs WHERE supplier_item_id=$1 AND status=$2',[row.id,status])).rowCount===0)continue;
+   // The row list is fixed at the start; a job another worker or source has written since costs no request (#1094),
+   // nor does a row the other egress's worker tried during this run (#1469).
+   if(!dryRun&&(await (ids?pool.query('SELECT 1 FROM product_enrichment_jobs WHERE supplier_item_id=$1 AND status=$2',[row.id,status]):pool.query(rowStillOpenSql,[row.id,status,startedAt]))).rowCount===0)continue;
    try{
     const ids={articleId:row.articleId,linkId:row.linkId,vehicleTypeId:row.vehicleTypeId};
     const info=parseArticleInfo(await client.articleInfo(articleInfoPath(row.articleId,row.linkId,row.vehicleTypeId)));
@@ -358,6 +362,11 @@ async function collect(){
    }catch(error){
     if(error instanceof SourceBlocked){if(!dryRun)await recordAttempt(pool,'parts2world',queue,row.id,'blocked');console.error(String(error));process.exitCode=2;outcome='blocked';break;}
     if(error instanceof DatabaseUnavailable||connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
+    if(error instanceof ArticleUnavailable){
+     const entry=unavailableEntry(error.message,seen529(done.get(row.id),other.get(row.id)));
+     await record({supplierItemId:row.id,...entry},queue);
+     console.log(`${index} ${row.code} → ${entry.outcome==='not_found'?'bulunamadı (ikinci HTTP 529, makale parts2world\'de yok)':`hata: ${error.message}`}`);continue;
+    }
     await record({supplierItemId:row.id,outcome:'error',error:String(error)},queue);console.log(`${index} ${row.code} → hata: ${error}`);
    }
   }

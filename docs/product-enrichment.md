@@ -515,6 +515,11 @@ parts2world `article-info` yanıtı makalenin TecDoc genel makale adını `data.
   tipi OE'yi listeleyen makaleden alır (aynı OE = aynı parça tipi); bu, #422'deki "diğer makalenin verisi atılır"
   kuralına bilinçli bir istisnadır.
 
+**HTTP 529 (#1469).** parts2world'ün bazı makalelere verdiği 529 yanıtı engel değil makaleye özgü bir hatadır
+(`ArticleUnavailable`; 30 sn'lik istek içi yeniden deneme yok). İlk 529 `error` olarak kaydedilir ve sonraki koşuda
+yeniden sorulur; ikincisi `not_found` olur ve bir daha sorulmaz. Ürün diğer kaynaklara (spareto, otoparcasan) açık kalır.
+Doğrudan ve proxy işçisi aynı sırayı zıt uçlardan yürüdüğü için, birinin aynı koşuda denediği satırı öbürü istemez.
+
 **Kilit ve sıra.** `fetch-types`, `collect` ile aynı iki kilidi alır (`parts2world-collect` denemeli,
 `parts2world-source` bekleyerek); aynı IP'den iki istemci açılamaz. Bekleyen işçi o an koşuyorsa
 `{"skipped":"another parts2world run is going"}` ile çıkar. Çözüm `fetch-types --via-proxy` (#946): istekler

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer,type Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {parts2worldLockNames} from '../src/modules/enrichment/parts2world-locks';
-import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
+import {ArticleUnavailable,Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {EgressProxyError,parseEgressProxy} from '../src/modules/suppliers/egress-proxy';
 
 test('lock names: direct keeps the old names, proxy gets its own',()=>{
@@ -53,4 +53,18 @@ test('articleInfo answered 403/429/503 by a proxied client stops the run as Sour
  const client=new Parts2WorldClient(0,0,proxy);
  (client as unknown as {get:()=>Promise<Response>}).get=async()=>new Response(null,{status:404});
  assert.equal(await client.articleInfo(path),null);
+});
+
+test('articleInfo answered 529 is ArticleUnavailable at once, not a block',async()=>{
+ const path='/api/v2/tecdoc/article-info/1/2/3/';
+ let calls=0;
+ const client=new Parts2WorldClient(0,0);
+ (client as unknown as {get:()=>Promise<Response>}).get=async()=>{calls++;return new Response('{"code":500,"message":"The website is not working properly"}',{status:529});};
+ await assert.rejects(client.articleInfo(path),error=>error instanceof ArticleUnavailable&&!(error instanceof SourceBlocked)&&error.message===`HTTP 529 for ${path}`);
+ assert.equal(calls,1);
+ for(const status of[403,429,503]){
+  const blocked=new Parts2WorldClient(0,0);
+  (blocked as unknown as {get:()=>Promise<Response>}).get=async()=>new Response(null,{status});
+  await assert.rejects(blocked.articleInfo(path),SourceBlocked);
+ }
 });

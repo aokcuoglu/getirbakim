@@ -11,6 +11,7 @@ import {
   enqueuePriceOnlySources, interleaveByShare, interleaveStreams, priceOnlyArticleQueueSql, priceOnlyChunkSql, priceOnlyOrderSql,
   priceOnlyShare, priceOnlyStatsSql, priceOnlySuppliers,
 } from "../src/modules/enrichment/price-only-queue";
+import { rowStillOpenSql } from "../src/modules/enrichment/parts2world-retry";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // spareto's pending selection (#921), in an isolated copy of the schema: the order comes from the materialized
@@ -377,6 +378,34 @@ describe("Dinamik price-list-only codes", () => {
     await article("matched");
     await article("other");
     await article("linked");
+  });
+
+  test("a row stays open to parts2world until an attempt of this run names it (#1469)", { skip }, async () => {
+    const started = new Date();
+    const open = async () => (await schema.pool.query(rowStillOpenSql, [price.ready2, "pending", started])).rowCount === 1;
+    const attempt = (source: string, outcome: string, ago = "0 seconds") => schema.pool.query(
+      "INSERT INTO enrichment_source_attempts(source,queue,supplier_item_id,outcome,attempted_at) VALUES($1,'price_only',$2,$3,now()-$4::interval)", [source, price.ready2, outcome, ago]);
+    const clear = () => schema.pool.query("DELETE FROM enrichment_source_attempts WHERE supplier_item_id=$1", [price.ready2]);
+    try {
+      assert.ok(await open(), "no attempt");
+      await attempt("parts2world", "not_found", "1 hour");
+      assert.ok(await open(), "an attempt before the run started");
+      await clear();
+      await attempt("parts2world", "blocked");
+      assert.ok(await open(), "a block is no answer");
+      await clear();
+      await attempt("spareto", "not_found");
+      assert.ok(await open(), "another source");
+      await clear();
+      await attempt("parts2world", "not_found");
+      assert.ok(!(await open()), "not_found by the other worker");
+      await clear();
+      await attempt("parts2world", "error");
+      assert.ok(!(await open()), "error by the other worker");
+      assert.ok(!(await schema.pool.query(rowStillOpenSql, [price.ready2, "complete", started])).rowCount, "a job of another status");
+    } finally {
+      await clear();
+    }
   });
 
   test("spareto takes only ready rows of enabled brands, rows parts2world reaches last", { skip }, async () => {
