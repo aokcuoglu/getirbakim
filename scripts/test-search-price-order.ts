@@ -480,20 +480,20 @@ test("a failing hit read fails the page as it does without the cache", async t =
 
 test("the budget of ids: the least recently used key is rebuilt on return, the newest stays, the weight stays within a budget and one entry", async () => {
   const stale = await import("../src/lib/stale-cache");
-  // staleCacheStats counts the caches a production process creates.
+  // staleCacheStats counts the caches a production process creates; weights are bytes (16 per id, plus the key's text).
   const proc = await withEnv({ SEARCH_PRICE_ORDER_MAX_IDS: "100", NODE_ENV: "production" }, () => otherProcess("budget"));
   const [a, b, c]: CatalogQuery[] = [{ q: "fren", sort: asc }, { q: "fren", sort: desc }, { q: "filtre", sort: asc }];
   const orders = async (query: CatalogQuery) => (await sent(() => browse(query, {}, proc))).orders;
   assert.equal(await orders(a), 1);
   assert.equal(await orders(b), 1, "72 + 72 ids is over the budget: the older one goes");
   assert.equal(await orders(b), 0, "the newest stays");
-  assert.ok(stale.staleCacheStats().weight <= 100 + 72, `weight ${stale.staleCacheStats().weight}`);
+  assert.ok(stale.staleCacheStats().weight <= (100 + 72) * 16 + 512, `weight ${stale.staleCacheStats().weight}`);
   assert.equal(await orders(a), 1, "the evicted key is rebuilt on return");
   assert.equal(await orders(a), 0);
   assert.equal(await orders(b), 1, "and the rebuilt one pushed the other out");
   assert.equal(await orders(c), 1);
   assert.equal(await orders(c), 0, "a small order beside the newest, within the budget");
-  assert.ok(stale.staleCacheStats().weight <= 100 + 72, `weight ${stale.staleCacheStats().weight}`);
+  assert.ok(stale.staleCacheStats().weight <= (100 + 72) * 16 + 512, `weight ${stale.staleCacheStats().weight}`);
   assert.equal(await withEnv({ SEARCH_PRICE_ORDER_MAX_IDS: "0" }, async () => (await import("../src/modules/store/search-price-order")).searchPriceOrderMaxIds()), 1_000_000, "invalid: the default");
 });
 

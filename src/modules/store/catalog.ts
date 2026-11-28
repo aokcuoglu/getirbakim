@@ -4,7 +4,7 @@ import { boundedQuery, db, preparedQuery } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
-import { staleCache } from "@/lib/stale-cache";
+import { staleCache, weighBuffer, weighIds, weighJson, weighStrings } from "@/lib/stale-cache";
 import { failureHold, sharedLoads, ttlCache } from "@/lib/ttl-cache";
 import { isPoolTimeout, isStatementTimeout } from "@/lib/db-errors";
 import { productPath } from "@/modules/seo/product-path";
@@ -300,13 +300,15 @@ const listings={epoch:listingEpoch},fitListings={epoch:fitsEpoch};
 // caches a page reads itself (listed models, garage vehicle listings), and since #1394 by the search caches (plain,
 // API rankings, suggestions).
 const boundedWait={maxWaitMs:listingWaitMs,maxFallbackMs:48*60*60*1000};
+// Cache bounds are approximate heap bytes (weighIds & co. in stale-cache.ts, #1461); STALE_CACHE_MAX_MB caps all caches together.
+const mebibyte=1024*1024;
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
-// Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
-// count (#1262), not only by entries. The fitted ids wait for their reload (no bounded wait, #1368): other caches' loads
+// Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by their
+// approximate size in bytes (#1262, #1461), not only by entries. The fitted ids wait for their reload (no bounded wait, #1368): other caches' loads
 // read them (catalogFilter, the API's fitted rankings), and an earlier id set served there would be stored in that cache
 // as the new value, one reload behind until its next bump or refresh.
-const cachedFitted=staleCache<string[]>(10*60*1000,500,{...fitListings,weigh:ids=>ids.length,maxWeight:400_000});
-const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:600_000});
+const cachedFitted=staleCache<string[]>(10*60*1000,500, {name:"fitted",...fitListings,weigh:weighIds,maxWeight:26*mebibyte});
+const cachedCategoryIds=staleCache<string[]>(10*60*1000,500, {name:"category-ids",...listings,weigh:weighIds,maxWeight:38*mebibyte});
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
  * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the makes of the models read from supplier
@@ -342,7 +344,7 @@ const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",
  * series, cached like the fits (per process and in storefront_listing_cache, so a new container adopts it, #1391; reloaded when a listing edit or the fit sync moves the fits value). After a
  * bump the make page waits at most LISTING_EPOCH_WAIT_MS for the reload, then links the earlier units (none: it waits).
  */
-const cachedListedModels=staleCache<string[]>(10*60*1000,300,{...fitListings,...boundedWait,...storedLinks,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("listed-models",1)});
+const cachedListedModels=staleCache<string[]>(10*60*1000,300, {name:"listed-models",...fitListings,weigh:weighStrings,maxWeight:4*mebibyte,...boundedWait,...storedLinks,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("listed-models",1)});
 export async function getListedModelGroups(brandId:string) {
  const groups=await getVehicleModelGroups(brandId);
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
@@ -728,7 +730,7 @@ export type CatalogContext={vehicleTypeId?:string|null};
 // The lookup is cached like the manufacturer directory (10 minutes; admin brand and override edits move the listing epoch),
 // so a page's count, facet and id reads share one.
 type BrandReach={labels:string[];ids:string[]};
-const cachedBrandReach=staleCache<BrandReach>(10*60*1000,500,listings);
+const cachedBrandReach=staleCache<BrandReach>(10*60*1000,500, {name:"brand-reach",...listings,weigh:reach=>weighIds(reach.ids)+weighStrings(reach.labels),maxWeight:4*mebibyte});
 const brandReach=(names:string[])=>cachedBrandReach(JSON.stringify([...names].sort()),async()=>(await catalogRead<BrandReach>("catalog.brandReach",`SELECT
   ARRAY(SELECT sb.label FROM supplier_brands sb JOIN brands mb ON mb.id=sb.brand_id WHERE mb.name=ANY($1::text[]))||$1::text[] AS labels,
   ARRAY(SELECT ov.supplier_item_id::text FROM commerce_item_overrides ov WHERE ov.brand=ANY($1::text[])) AS ids`,[names])).rows[0]);
@@ -756,10 +758,10 @@ async function shownBrandClause(names:string[],values:unknown[]) {
 // at once. A brand's labels come from brandReach, cached apart for 10 minutes and served while it refreshes: a label an
 // automatic link adds (#470, sync_supplier_brands; no counter moves) reaches the scope up to two such windows later
 // (counted from the first visit after an idle spell), where the brand listing itself sees it one window late; admin brand
-// edits move the epoch and reload both. Bounded by total id count, like the fitted id sets (#1262).
+// edits move the epoch and reload both. Bounded by size in bytes, like the fitted id sets (#1262, #1461).
 type StockScopeIds={size:number;ids:string|null};
 const stockScopeTtlMs=10*60*1000;
-const cachedStockScopes=staleCache<StockScopeIds>(stockScopeTtlMs,500,{weigh:scope=>scope.ids?scope.size:1,maxWeight:300_000});
+const cachedStockScopes=staleCache<StockScopeIds>(stockScopeTtlMs,500, {name:"stock-scopes",weigh:scope=>scope.ids?scope.ids.length:0,maxWeight:11*mebibyte});
 /** A stock scope's cache key and counter (see above), and its rows' clause over `catalog` with its own values (`$1` the companies). */
 type StockScopeSource={key:string;epoch:()=>Promise<number>;clause:()=>Promise<{clause:string;values:unknown[]}>};
 const brandStockScope=(names:string[]):StockScopeSource=>({key:`brand|${JSON.stringify([...names].sort())}`,epoch:listingEpoch,
@@ -980,18 +982,18 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // (listingSummary, #1367): the three caches keep their own keys, stored rows and rules, and their loaders share it.
 const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
 const persistedListings={...listings,...persistedFor,...boundedWait};
-const cachedCounts=staleCache<number>(aggregateTtl,500,{...persistedListings,fallbackWhen:count=>count>0,store:listingCacheStore<number>("count",1)});
-const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("page-ids",1)});
+const cachedCounts=staleCache<number>(aggregateTtl,500, {name:"counts",...persistedListings,fallbackWhen:count=>count>0,store:listingCacheStore<number>("count",1)});
+const cachedPageIds=staleCache<string[]>(aggregateTtl,500, {name:"page-ids",...persistedListings,weigh:weighIds,maxWeight:16*mebibyte,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("page-ids",1)});
 // A garage vehicle's fit and oil filters key their entries per vehicle type (#884): kept apart, so every page view with a
 // vehicle (its "Aracına uyanlar" lead) does not push the plain listings, 0.5-1.5 s each to recompute, out of the LRU above.
 // They wait like the three above (#1368), in memory only: the earlier value is the entry a bump replaced.
-const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,{...fitListings,...boundedWait,fallbackWhen:count=>count>0}),
- cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,{...fitListings,...boundedWait,fallbackWhen:ids=>ids.length>0});
+const cachedVehicleCounts=staleCache<number>(aggregateTtl,500, {name:"vehicle-counts",...fitListings,...boundedWait,fallbackWhen:count=>count>0}),
+ cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500, {name:"vehicle-page-ids",...fitListings,...boundedWait,weigh:weighIds,maxWeight:8*mebibyte,fallbackWhen:ids=>ids.length>0});
 const vehicleScoped=(query:CatalogQuery)=>Boolean(query.fits||query.oil);
 const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:cachedCounts;
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
 type Facets={brands:string[];attributes:CatalogFacet[]};
-const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
+const cachedFacets=staleCache<Facets>(aggregateTtl,500, {name:"facets",...persistedListings,weigh:weighJson,maxWeight:32*mebibyte,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500, {name:"brands",...listings,weigh:weighStrings,maxWeight:4*mebibyte});
 // The stored whole price orders (#1369): the process keeps each one's size only, its ids stay in the table
 // (listing-price-order.ts). Same rules as the three above; an order stored empty (nothing to store) is no earlier value.
 // Its loader and the first pages' below both call buildPriceOrder (#1405), not each other's cache: a refresh of either
@@ -999,14 +1001,14 @@ const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fal
 // build. buildPriceOrder shares a running build of the same key, epoch and head size, and returns a row another load
 // stored since this one read the store; each cache then picks the row up through its own store. A large filtered
 // listing's order (#1390) is kept here too, under its own key; only its deep pages build it.
-const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
+const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500, {name:"price-orders",...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
 // The first pages of a stored listing's price order (#1389): cachedPageIds' rows and rules, with the stored order's first
 // 480 ids as a second source (priceOrderHeadStore), so a listing a deep page ordered is not priced again. While a deep
 // page sliced that order within the last 20 minutes (priceOrderInUse, #1405), a load rebuilds the order and takes its
 // first ids instead of its own 480-id pass, so a listing hot on both sides is priced once per refresh. These keys have
 // their own 500 entries, apart from cachedPageIds'. The size is read lazily: cachedPages is declared further down. An
 // order older than the cache's longest window (maxFallbackMs, 48 hours) is not read: nothing could take it.
-const cachedPricedHeads=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,
+const cachedPricedHeads=staleCache<string[]>(aggregateTtl,500, {name:"priced-heads",...persistedListings,weigh:weighIds,maxWeight:16*mebibyte,fallbackWhen:ids=>ids.length>0,
  store:priceOrderHeadStore(listingCacheStore<string[]>("page-ids",1),()=>cachedPages*catalogPageSize,persistedListings.maxFallbackMs)});
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 /**
@@ -1066,7 +1068,7 @@ type ListingSummary={count:number;ids:string[];facets:Facets};
  * counter, epochOf), so a reload after a bump never takes a summary read before it. A failed summary fails each loader;
  * each cache then applies its own rule (#771).
  */
-const sharedSummaries=sharedLoads<ListingSummary>(5_000,50);
+const sharedSummaries=sharedLoads<ListingSummary>(5_000,50, Date.now, "summaries");
 /**
  * A covered listing's (summarized) count, page-1 ids in the default order and facets from one read of its rows
  * (listingSummarySql, #1367). Read as four statements, each scanned every row of the listing. Locally (load ~8,
@@ -1136,7 +1138,7 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
 // ids. The first pages are kept (deeper pages come from the whole order searchOrder loads when one is first asked, #1447); facets need every match, so they are kept too.
 // 24 cards (#739, was 30) keep a listing page closer to the 350 KB HTML target (#642); 20 cached pages cover 480 results.
 const catalogPageSize=24;
-const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:plain=>plain.total>0});
+const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300, {name:"plain-searches",...listings,...boundedWait,weigh:plain=>weighIds(plain.ids)+weighJson([plain.brands,plain.attributes]),maxWeight:24*mebibyte,fallbackWhen:plain=>plain.total>0});
 type PlainSearch={ids:string[];total:number;brands:string[];attributes:CatalogFacet[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,async()=>{
  const search=await catalogSearch(raw,mode),summary=await summarizeSearch(search);
@@ -1161,8 +1163,8 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 // load fails may still be served the earlier entry. After the hold the next request goes through the cache again (the
 // earlier entry may be served within the bounded wait while it reloads). A first load can pay the order's build (30 s
 // limit) and then the live page (55 s limit) when the build fails; searches are capped at maxSearchHits, so that is unlikely.
-const cachedSearchOrders=staleCache<SearchOrder>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:order=>order.total>0,
- weigh:order=>Math.max(1,order.total),maxWeight:searchPriceOrderMaxIds()});
+const cachedSearchOrders=staleCache<SearchOrder>(aggregateTtl,300, {name:"search-orders",...listings,...boundedWait,fallbackWhen:order=>order.total>0,
+ weigh:order=>weighBuffer(order.packed),maxWeight:searchPriceOrderMaxIds()*16});
 // The facets of a scoped search (#1441): catalogFacets reduces the query to its scope (search, category, make, model,
 // manufacturer, garage vehicle, oil), so brand, property, availability, sort and page variants share one entry. Warm
 // pages paid 0.8-2.6 s for them (/marka/bosch?q=fren 2.3 s, /kategori/yedek-parca?q=bosch 1.65 s, /yedek-parca/volkswagen?q=filtre
@@ -1170,7 +1172,7 @@ const cachedSearchOrders=staleCache<SearchOrder>(aggregateTtl,300,{...listings,.
 // vehicle-reading search (searchEpoch). No failure hold: a failed first load fails the page as the live read does, a
 // failed refresh keeps the earlier value. Only the epochs reload early: admin spec edits (spec-actions.ts only calls
 // revalidatePath) and supplier syncs wait for the 10-minute TTL, and an idle key serves its old value once (#1453).
-const cachedSearchFacets=staleCache<Facets>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0});
+const cachedSearchFacets=staleCache<Facets>(aggregateTtl,300, {name:"search-facets",...listings,...boundedWait,weigh:weighJson,maxWeight:16*mebibyte,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0});
 const failedSearchOrders=failureHold(()=>failedBuildBackoffMs,300,()=>Date.now()),timedOutSearchOrders=failureHold(()=>filteredTimeoutBackoffMs,300,()=>Date.now());
 /**
  * The cached order of a search (price, relevance or newest), or null when its key is held or its build failed (the caller
@@ -1230,11 +1232,11 @@ async function searchOrder(query:CatalogQuery,context:CatalogContext):Promise<Se
 }
 /** How deep API searches read the ranking (#1093): exact-number filters and fit-first ordering work on these ids. */
 export const rankedSearchDepth=200;
-const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:ids=>ids.length>0});
+const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300, {name:"ranked-searches",...listings,...boundedWait,weigh:weighIds,maxWeight:4*mebibyte,fallbackWhen:ids=>ids.length>0});
 // The hit set the two API rankings below share (#1119): loaded once when both miss together (a partner request with a
 // vehicle), not searched twice. Few and short-lived entries: a broad search holds up to maxSearchHits ids. Keyed by the
 // search's counter too (searchEpoch), so a ranking reloaded after a bump never starts from a hit set found before it.
-const sharedApiSearches=ttlCache<CatalogSearch>(30_000,4);
+const sharedApiSearches=ttlCache<CatalogSearch>(30_000,4, Date.now, "api-searches");
 const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`;
 // The type-ahead's hit set (#1394): the ids it ranks (at most maxRankedSuggestions) and whether there were more, kept like
 // the API rankings so a keystroke repeated within 10 minutes sends no hit read; names and products below stay live.
@@ -1244,7 +1246,7 @@ const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(
 // one. No abort signal: the load is shared by every request for the key, and one visitor
 // typing on must not cancel it for the others.
 type SuggestSearch=Pick<CatalogSearch,"parsed"|"correctedQuery"|"vehicle">&{ids:string[];many:boolean};
-const cachedSuggestSearches=staleCache<SuggestSearch>(aggregateTtl,500,{...listings,...boundedWait,fallbackWhen:search=>search.ids.length>0,weigh:search=>search.ids.length,maxWeight:100_000});
+const cachedSuggestSearches=staleCache<SuggestSearch>(aggregateTtl,500, {name:"suggest-searches",...listings,...boundedWait,fallbackWhen:search=>search.ids.length>0,weigh:search=>weighIds(search.ids),maxWeight:8*mebibyte});
 const suggestHold=failureHold(searchFailureHoldMs,500);
 const suggestSearch=(raw:string,mode:SearchMode)=>{
  const key=apiSearchKey(raw,mode);
@@ -1273,14 +1275,14 @@ export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(
  * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached per type
  * in its own LRU (reloaded with the fits value), apart from the storefront's fit sets.
  */
-const cachedFittedListings=staleCache<string[]>(10*60*1000,300,{...fitListings,weigh:ids=>ids.length,maxWeight:300_000});
+const cachedFittedListings=staleCache<string[]>(10*60*1000,300, {name:"fitted-listings",...fitListings,weigh:weighIds,maxWeight:19*mebibyte});
 const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
  const fitted=await typeFittedIds(typeId);
  if(!fitted.length)return [];
  return (await catalogRead<{id:string}>(`catalog.typeFittedListings type=${typeId}`,`SELECT DISTINCT COALESCE(o.primary_id,f.id)::text AS id FROM unnest($1::uuid[]) f(id)
   LEFT JOIN product_offers o ON o.item_id=f.id`,[fitted])).rows.map(row=>row.id);
 });
-const cachedRankedFits=staleCache<string[]>(aggregateTtl,300,{...fitListings,...boundedWait,fallbackWhen:ids=>ids.length>0});
+const cachedRankedFits=staleCache<string[]>(aggregateTtl,300, {name:"ranked-fits",...fitListings,...boundedWait,weigh:weighIds,maxWeight:4*mebibyte,fallbackWhen:ids=>ids.length>0});
 /**
  * The first rankedSearchDepth saleable matches of a search that are linked to the vehicle type, in relevance order
  * (#1119): the whole hit set intersected with the type's fits, as the storefront's "Aracına uyanlar" lead does

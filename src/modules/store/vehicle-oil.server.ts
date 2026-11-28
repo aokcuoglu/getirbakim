@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { db } from "@/lib/db";
-import { staleCache } from "@/lib/stale-cache";
+import { staleCache, weighJson } from "@/lib/stale-cache";
 import { oilPackLitres } from "./maintenance-kit";
 import { applySpecOverrides } from "./product-spec-display";
 import { getOverrideSpecs } from "./product-specs";
@@ -24,7 +24,7 @@ export const getVehicleOilSpec = cache(async (vehicleTypeId: string | null | und
 const oilCandidateWhere = `(catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4`;
 
 // Engine oils change only with supplier syncs and enrichment imports, like the catalog's other id lists.
-const cachedOils = staleCache<{ id: string; spec: ProductOilSpec; litres: number | null }[]>(10 * 60 * 1000, 1);
+const cachedOils = staleCache<{ id: string; spec: ProductOilSpec; litres: number | null }[]>(10 * 60 * 1000, 1,{name:"vehicle-oils",weigh:weighJson});
 /**
  * Every listed engine oil with the specs it states and its pack size in litres (null when the name has none). Candidates come from one regex pass over product names
  * (a grade such as "5W-30", or "MOTOR YAĞI"); their trusted enrichment specifications (with the admin's overrides, #623) are then read by id.

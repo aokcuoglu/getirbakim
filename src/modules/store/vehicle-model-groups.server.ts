@@ -1,16 +1,18 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { staleCache } from "@/lib/stale-cache";
+import { staleCache, weighJson, weighStrings } from "@/lib/stale-cache";
 import { modelPath } from "@/modules/seo/paths";
 import { vehicleBrandSlug, type VehicleBrand, type VehicleImage, type VehicleModel } from "./vehicle-catalog";
 import { getVehicleModelImages } from "./vehicle-images.server";
 import { vehicleModelGroups, type VehicleModelGroup } from "./vehicle-model-groups";
 
 // The vehicle catalog changes only with TecDoc imports; a make's units are shared per process.
-const cachedGroups = staleCache<VehicleModelGroup[]>(10 * 60 * 1000, 300);
-const cachedEngines = staleCache<ModelGroupEngines[]>(10 * 60 * 1000, 300);
-const cachedFacts = staleCache<ModelGroupFacts>(10 * 60 * 1000, 300);
-const cachedMotorcycles = staleCache<string[]>(10 * 60 * 1000, 300);
+// Approximate bytes (#1461): each of the four caches may hold 8 MB.
+const groupsBound = 8 * 1024 * 1024;
+const cachedGroups = staleCache<VehicleModelGroup[]>(10 * 60 * 1000, 300,{name:"model-groups",weigh:weighJson,maxWeight:groupsBound});
+const cachedEngines = staleCache<ModelGroupEngines[]>(10 * 60 * 1000, 300,{name:"model-engines",weigh:weighJson,maxWeight:groupsBound});
+const cachedFacts = staleCache<ModelGroupFacts>(10 * 60 * 1000, 300,{name:"model-facts",weigh:weighJson,maxWeight:groupsBound});
+const cachedMotorcycles = staleCache<string[]>(10 * 60 * 1000, 300,{name:"motorcycles",weigh:weighStrings,maxWeight:groupsBound});
 // REPXPERT's body type of two-wheelers (db/vehicle-type-specs.sql, npm run vehicles:repxpert).
 const motorcycleBody = "İki tekerlekli taşıt";
 

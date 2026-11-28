@@ -7,6 +7,8 @@ export async function register() {
   if (process.env.NODE_ENV === "production") {
     const { startMemoryLog } = await import("@/lib/memory-log");
     startMemoryLog({ intervalMs: Number(process.env.MEMORY_LOG_INTERVAL_MS ?? 300_000) });
+    // Local measurement only (#1461): SIGUSR2 takes a heap snapshot and empties the caches one by one.
+    if (process.env.MEMORY_PROBE === "1") (await import("@/lib/memory-log")).startMemoryProbe();
   }
   // Fill the per-process catalog caches before visitors do (#448). Production servers only; not awaited.
   if (process.env.NODE_ENV === "production" && process.env.STOREFRONT_WARMUP !== "0") {
