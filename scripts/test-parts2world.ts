@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {articleIdsFromUrl,articleInfoPath,articleInfoPattern,articleType,articleTypeAnswer,buildData,buildVehicles,identify,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,type SourceVehicle,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
+import {OUTAGE_STREAK,names529,openRow,outageStreak,seen529,unavailableEntry} from '../src/modules/enrichment/parts2world-retry';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesEnrichment,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 
@@ -186,4 +187,29 @@ test('fetch-types answers (#852): a 404 or empty answer is no article, a rejecte
  const unnamed=articleTypeAnswer({data:{...raw.data,spareInfo:null}});
  assert.equal(unnamed.kind==='article'&&unnamed.type,null);
  for(const bad of [{},'<html>',{data:{id:'x'}}]){const answer=articleTypeAnswer(bad);assert.equal(answer.kind,'invalid');}
+});
+
+test('a first 529 is retried, a second is final (#1469)',()=>{
+ const msg='HTTP 529 for /api/v2/tecdoc/article-info/1/2/3/';
+ const first=unavailableEntry(msg,false),second=unavailableEntry(msg,true);
+ assert.equal(first.outcome,'error');assert.equal(first.error,`Error: ${msg}`);assert.ok(names529(first));
+ assert.equal(second.outcome,'not_found');assert.ok(names529(second));assert.match(second.error,/second HTTP 529/);
+ const err529={outcome:'error',error:`Error: ${msg}`},fetchFailed={outcome:'error',error:'TypeError: fetch failed'};
+ const final={outcome:'not_found',error:second.error};
+ assert.ok(openRow(undefined,undefined,false));
+ assert.ok(openRow(err529,undefined,false));assert.ok(seen529(err529,undefined));
+ assert.ok(openRow(err529,err529,false));assert.ok(seen529(err529,err529));
+ assert.ok(!openRow(fetchFailed,undefined,false));assert.ok(!seen529(fetchFailed,undefined));
+ assert.ok(!openRow(undefined,final,false));assert.ok(seen529(undefined,final));
+ assert.ok(!openRow(err529,fetchFailed,false));
+ for(const outcome of['collected','imported','skipped','not_found'])assert.ok(!openRow({outcome},undefined,false)&&!openRow(undefined,{outcome},false));
+ assert.ok(openRow({outcome:'collected'},undefined,true));assert.ok(openRow(final,undefined,true));assert.ok(!openRow({outcome:'imported'},undefined,true));
+});
+
+test('only consecutive first-time 529s build an outage streak (#1469)',()=>{
+ let streak=0;
+ for(let i=0;i<OUTAGE_STREAK-1;i++)streak=outageStreak(streak,true);
+ assert.equal(streak,OUTAGE_STREAK-1);
+ assert.equal(outageStreak(streak,false),0,'a second 529 or any other outcome resets');
+ assert.equal(outageStreak(streak,true),OUTAGE_STREAK);
 });

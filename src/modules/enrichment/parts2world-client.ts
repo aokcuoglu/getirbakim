@@ -1,6 +1,8 @@
 import {PARTS2WORLD,articleInfoPattern} from './parts2world-adapter';
 import {openTunnel,proxiedFetch,type EgressProxy} from '../suppliers/egress-proxy';
 export class SourceBlocked extends Error {}
+/** The article answered HTTP 529 ("The website is not working properly"): a per-article failure, not a block (#1469). */
+export class ArticleUnavailable extends Error {}
 const UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 /** Sequential, paced client for parts2world.com's public TecDoc API. The site answered HTTP 429 at about one request a
@@ -24,10 +26,11 @@ export class Parts2WorldClient {
      headers:{'User-Agent':UA,Accept:'application/json, text/plain, */*','Accept-Language':'en',Referer:PARTS2WORLD+'/tecdoc/'}});
     if([403,429,503].includes(response.status)){await response.body?.cancel();throw new SourceBlocked(`parts2world.com answered HTTP ${response.status} for ${path}`);}
     if(response.status===404){await response.body?.cancel();return null;}
+    if(response.status===529){await response.body?.cancel();throw new ArticleUnavailable(`HTTP 529 for ${path}`);}
     if(!response.ok){await response.body?.cancel();throw Error(`HTTP ${response.status} for ${path}`);}
     return await response.json();
    }catch(error){
-    if(error instanceof SourceBlocked||attempt>=1)throw error;
+    if(error instanceof SourceBlocked||error instanceof ArticleUnavailable||attempt>=1)throw error;
     await sleep(30000);
    }
   }
