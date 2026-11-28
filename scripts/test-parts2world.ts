@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {articleIdsFromUrl,articleInfoPath,articleInfoPattern,articleType,articleTypeAnswer,buildData,buildVehicles,identify,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,type SourceVehicle,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
-import {names529,openRow,seen529,unavailableEntry} from '../src/modules/enrichment/parts2world-retry';
+import {OUTAGE_STREAK,names529,openRow,outageStreak,seen529,unavailableEntry} from '../src/modules/enrichment/parts2world-retry';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesEnrichment,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 
@@ -204,4 +204,12 @@ test('a first 529 is retried, a second is final (#1469)',()=>{
  assert.ok(!openRow(err529,fetchFailed,false));
  for(const outcome of['collected','imported','skipped','not_found'])assert.ok(!openRow({outcome},undefined,false)&&!openRow(undefined,{outcome},false));
  assert.ok(openRow({outcome:'collected'},undefined,true));assert.ok(openRow(final,undefined,true));assert.ok(!openRow({outcome:'imported'},undefined,true));
+});
+
+test('only consecutive first-time 529s build an outage streak (#1469)',()=>{
+ let streak=0;
+ for(let i=0;i<OUTAGE_STREAK-1;i++)streak=outageStreak(streak,true);
+ assert.equal(streak,OUTAGE_STREAK-1);
+ assert.equal(outageStreak(streak,false),0,'a second 529 or any other outcome resets');
+ assert.equal(outageStreak(streak,true),OUTAGE_STREAK);
 });

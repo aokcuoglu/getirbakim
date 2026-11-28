@@ -19,3 +19,8 @@ export function unavailableEntry(message:string,seenBefore:boolean):{outcome:'no
 /** A pass's row is still worth a request: its job is open and no parts2world attempt other than a block was
  *  recorded since the pass started, so a row the other egress's worker tried during the run costs nothing. */
 export const rowStillOpenSql=`SELECT 1 FROM product_enrichment_jobs j WHERE j.supplier_item_id=$1 AND j.status=$2 AND NOT EXISTS(SELECT 1 FROM enrichment_source_attempts a WHERE a.supplier_item_id=j.supplier_item_id AND a.source='parts2world' AND a.outcome<>'blocked' AND a.attempted_at>=$3)`;
+/** First-time 529s in a row that stop a pass: that many in a row look like a site-wide failure, not bad articles. */
+export const OUTAGE_STREAK=25;
+/** The run of consecutive first-time 529s: grows on one, resets on anything else (a second 529 included, since the
+ *  rows reopened by the first pass legitimately come back to back). */
+export const outageStreak=(previous:number,firstTime529:boolean)=>firstTime529?previous+1:0;
